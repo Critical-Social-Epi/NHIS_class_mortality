@@ -1,0 +1,409 @@
+---
+title: "Class and mortality in NHIS"
+author: "Jerzy Eisenberg-Guyot"
+date: "`r format(Sys.time(), '%B %Y')`"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    keep_md: true
+always_allow_html: true
+---
+
+* Analysis:
+
+    + subdivide workers (and managers?) based on ONET or Krieger's method
+    + compare descriptives and results using classwk/classwk2 2001-2003 when the variables overlap
+    + incorporate firmno variable (numemps) for capitalist vs PB from 1997-2014 as sensitivity/descriptive analysis
+    + sensitivity using survey design object for coxph - show SEs are similar to main
+    + estimate proportions in classes over time
+    + estimate class*year interaction term model as sensitivity
+    
+* Investigate: 
+    + need to handle hispanic oversample correctly: advice here: https://nhis.ipums.org/nhis/userNotes_Hispanic_oversample.shtml
+        + do so by using inverse probability of selection weights in sensitivity analyses? Tig says that makes sense, check if anyone ever responds on IPUMS forum
+
+* General notes:
+    + originally was hoping to examine cause-specific mortality, but I'm not sure it makes sense as counts are small, detailed cause of death not available from 2005-on, and would need to handle competing events
+    + i don't think it's worth doing MICE since there's very little missingness and it'd be incredibly computationally intensive given the size of the dataset
+
+* Methods notes: 
+    + when robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rather than frequency weights)
+    + citations for propensity score approach: https://www.ncbi.nlm.nih.gov/labs/pmc/articles/PMC5802372/; https://journals.sagepub.com/doi/full/10.1177/0193841X20938497
+  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r warning=FALSE, message=FALSE}
+library(dplyr)
+library(data.table)
+library(here)
+library(survival)
+library(rms)
+library(broom)
+library(Rcpp)
+library(rstpm2)
+library(survey)
+library(kableExtra)
+library(tableone)
+library(survminer)
+library(ipw)
+library(directlabels)
+library(RColorBrewer)
+library(patchwork)
+options(scipen=999)
+options(knitr.kable.NA = '')
+
+#load dat
+dat <- fread(here('nhis_1986_2014.csv'))
+
+#make all variable names lowercase
+dat %>%
+  rename_all(tolower) -> dat
+
+#exclude those outside age ranges (age has 0.09% missing)
+#exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time)
+#exclude 1997-2000, when there's no data on whether business is incorporated or not
+#exclude 2015-on, when there's no mortality data
+#exclude 1992 Hispanic oversample (only 4641 additional respondents) per advice of IPUMS
+dat %>%
+  filter((age>=25 & age<65) & mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000 & year<2015)) & !(year==1992 & substr(nhispid, 1, 4)==1991)) -> dat_sub
+
+#make variables
+dat_sub %>%
+  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
+  mutate(classwk2=ifelse(classwk2 %in% (7:9), NA, classwk2), #these are real values in some other variables so we'll reset them here
+         racesr=ifelse(racesr==900, NA, racesr)) %>%
+  mutate(year_1986=year-1986, #center year at beginning and end of follow-up
+         year_2014=year-2014,
+         mortwt_f=ifelse(year<=1996, mortwt, mortwtsa), #per advice of IPUMS help desk, use mortwt from 1986-1996 and mortwtsa from 1997-on
+         dead=ifelse(mortstat==1, 1, 0),
+         mortdodq=ifelse(mortdodq==1, 91.25, #assume deaths occurred at the end of the quarter
+                         ifelse(mortdodq==2, 182.5,
+                                ifelse(mortdodq==3, 273.75, 
+                                       ifelse(mortdodq==4, 365, NA)))),
+         time=ifelse(dead==0, 2016 - year, mortdody + (mortdodq/365) - year), #deaths were allowed to occur through the end of Dec 31 2015, i.e., 2016
+         dead_1996=ifelse(year>1996, NA,
+                          ifelse(year<=1996 & (is.na(mortdody) | mortdody>1996), 0,
+                                 ifelse(year<=1996 & mortdody<=1996, 1, NA))),
+         time_1996=ifelse(year>1996, NA,
+                          ifelse(dead_1996==1, mortdody + (mortdodq/365) - year,
+                                 ifelse(dead_1996==0, 1997-year, NA))),
+         manager=ifelse(occ1995>=102 & occ1995<=104, 1, 0),
+         class=factor(ifelse(empstat==220, "NILF",
+                             ifelse((empstat>=210 & empstat<=214) | (year<2001 & (classwk>=20 & classwk<=34) & manager!=1) | (year>=2001 & (classwk2>=1 & classwk2<=4) & manager!=1), "Worker",
+                                    ifelse((year<2001 & (classwk>=20 & classwk<=34) & manager==1) | (year>=2001 & (classwk2>=1 & classwk2<=4) & manager==1), "Manager",
+                                           ifelse((year<2001 & classwk==41) | (year>=2001 & classwk2==5 & jobsecincorp==2), "Capitalist",
+                                                  ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "PB", NA))))), 
+                     levels=c("Capitalist", "PB", "Manager", "Worker", "NILF")),
+         race=ifelse(racesr==100, "White", 
+                     ifelse(racesr==200, "Black", "Other")),
+         race_h=factor(ifelse(hispeth!=10, "Hispanic",
+                              ifelse(hispeth==10 & race=="White", "NH white",
+                                     ifelse(hispeth==10 & race=="Black", "NH black", "NH other"))), levels=c("NH white", "NH black", "Hispanic", "NH other")),
+         poc=ifelse(race_h=="NH white", "NH white", "POC"),
+         sex=ifelse(sex==1, "male", "female"),
+         educ=factor(ifelse(educrec1<13, "<HS",
+                            ifelse(educrec1==13, "HS",
+                                   ifelse(educrec1==14, "Some college", "College+"))), levels=c("<HS", "HS", "Some college", "College+")),
+         marital_tri=factor(ifelse(marstat %in% 10:12, "Married",
+                                   ifelse(marstat %in% 20:40, "Widowed/divorced/separated", 
+                                          ifelse(marstat==50, "Single", NA))), levels=c("Married", "Single", "Widowed/divorced/separated")),
+         region=ifelse(region==1, "NE", 
+                       ifelse(region==2, "MW",
+                              ifelse(region==3, "S", "W"))),
+         class_gender=factor(ifelse(class=="Worker" & sex=="male", "Male worker",
+                                    ifelse(class=="Worker" & sex=="female", "Female worker",
+                                           ifelse(class=="Manager" & sex=="male", "Male manager",
+                                                  ifelse(class=="Manager" & sex=="female", "Female manager",
+                                                         ifelse(class=="PB" & sex=="male", "Male PB",
+                                                                ifelse(class=="PB" & sex=="female", "Female PB",
+                                                                       ifelse(class=="Capitalist" & sex=="male", "Male capitalist",
+                                                                              ifelse(class=="Capitalist" & sex=="female", "Female capitalist",
+                                                                                     ifelse(class=="NILF" & sex=="male", "Male NILF",
+                                                                                            ifelse(class=="NILF" & sex=="female", "Female NILF", NA)))))))))),
+                             levels=c("Male capitalist", "Male PB", "Male manager", "Male worker", "Male NILF",
+                                      "Female capitalist", "Female PB", "Female manager", "Female worker", "Female NILF")),
+         class_poc=factor(ifelse(class=="Worker" & poc=="NH white", "NH white worker",
+                                 ifelse(class=="Worker" & poc=="POC", "POC worker",
+                                        ifelse(class=="Manager" & poc=="NH white", "NH white manager",
+                                               ifelse(class=="Manager" & poc=="POC", "POC manager",
+                                                      ifelse(class=="PB" & poc=="NH white", "NH white PB",
+                                                             ifelse(class=="PB" & poc=="POC", "POC PB",
+                                                                    ifelse(class=="Capitalist" & poc=="NH white", "NH white capitalist",
+                                                                           ifelse(class=="Capitalist" & poc=="POC", "POC capitalist", 
+                                                                                  ifelse(class=="NILF" & poc=="NH white", "NH white NILF", 
+                                                                                         ifelse(class=="NILF" & poc=="POC", "POC NILF", NA)))))))))),
+                          levels=c("NH white capitalist", "NH white PB", "NH white manager", "NH white worker", "NH white NILF",
+                                   "POC capitalist", "POC PB", "POC manager", "POC worker", "POC NILF")),
+         class_region=factor(ifelse(class=="Worker" & region=="MW", "MW worker",
+                                    ifelse(class=="Worker" & region=="NE", "NE worker",
+                                           ifelse(class=="Worker" & region=="S", "S worker",
+                                                  ifelse(class=="Worker" & region=="W", "W worker",
+                                                         ifelse(class=="Manager" & region=="MW", "MW manager",
+                                                                ifelse(class=="Manager" & region=="NE", "NE manager",
+                                                                       ifelse(class=="Manager" & region=="S", "S manager",
+                                                                              ifelse(class=="Manager" & region=="W", "W manager",
+                                                                                     ifelse(class=="PB" & region=="MW", "MW PB",
+                                                                                            ifelse(class=="PB" & region=="NE", "NE PB",
+                                                                                                   ifelse(class=="PB" & region=="S", "S PB",
+                                                                                                          ifelse(class=="PB" & region=="W", "W PB",
+                                                                                                                 ifelse(class=="Capitalist" & region=="MW", "MW capitalist",
+                                                                                                                        ifelse(class=="Capitalist" & region=="NE", "NE capitalist",
+                                                                                                                               ifelse(class=="Capitalist" & region=="S", "S capitalist",
+                                                                                                                                      ifelse(class=="Capitalist" & region=="W", "W capitalist", 
+                                                                                                                                             ifelse(class=="NILF" & region=="MW", "MW NILF",
+                                                                                                                                                    ifelse(class=="NILF" & region=="NE", "NE NILF",
+                                                                                                                                                           ifelse(class=="NILF" & region=="S", "S NILF",
+                                                                                                                                                                  ifelse(class=="NILF" & region=="W", "W NILF", NA)))))))))))))))))))),
+                             levels=c("MW capitalist", "NE capitalist", "S capitalist", "W capitalist",
+                                      "MW PB", "NE PB", "S PB", "W PB", 
+                                      "MW manager", "NE manager", "S manager", "W manager",
+                                      "MW worker", "NE worker", "S worker", "W worker",
+                                      "MW NILF", "NE NILF", "S NILF", "W NILF"))) -> dat_sub
+                                                                                     
+#exclude couple respondents with negative follow-up time
+dat_sub %>%
+  filter(time>=0) -> dat_sub
+```
+
+# Missingness 
+
+Age missingness is in full dataset; missingness for other variables is among those ages 25-64
+
+```{r message=FALSE, warning=FALSE}
+#age in full dataset
+dat %>%
+  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
+  summarise_at(vars('age'), funs(na=100*sum(is.na(.)/1233801))) %>%
+  mutate(name='age') %>% 
+  relocate(na, .after=last_col()) -> dat_age_na
+
+#other vars in subsetted dataset
+dat_sub %>%
+  summarise_at(vars(c('class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')), funs(100*sum(is.na(.)/861724))) %>%
+  tidyr::pivot_longer(class:region, values_to='na') -> dat_other_na
+
+kable(bind_rows(dat_age_na, dat_other_na), digits=2, col.names=c("Variable", "Percent missing")) %>%
+  kable_styling('striped')
+```
+
+# Descriptives
+
+## Unweighted and stratified with missingness in variables of interest (aside from age and class)
+
+```{r message=FALSE, warning=FALSE}
+#vars of interest
+vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age')
+catvars <- c("sex")
+nonorm <- c('age')
+
+x <- CreateTableOne(data = dat_sub, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p')
+kable(x[,1:5]) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+# Class and all-cause mortality
+
+```{r}
+#plotting function
+plotted <- function(datted=kapped, caps=120, pbs=120, mans=120, works=120, nilfs=120){
+  
+  dat_surv <- data.frame(time=datted$time,
+                         surved=datted$surv,
+                         se=datted$std.err,
+                         class=c(rep("Caps", caps), rep("PBs", pbs), rep("Mans", mans), rep("Wrks", works), rep("NILFs", nilfs)))
+
+  ggplot(dat_surv, aes(x=time, y=surved, group=class, color=class, fill=class, label=class)) + 
+    geom_line() +
+    geom_ribbon(aes(ymin=surved-1.96*se, ymax=surved+1.96*se, color=class), alpha=0.2, lty=0) +
+    geom_dl(method='last.qp') +
+    scale_color_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,4,6,8,10)]) +
+    scale_fill_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,4,6,8,10)]) +
+    xlab("Years") +
+    ylab("Probability of survival") +
+    scale_x_continuous(expand=expansion(mult=c(0,0.09))) +
+    scale_y_continuous(expand=expansion(mult=c(0.01,0))) +
+    theme_light() +
+    theme(legend.position="none")
+}
+
+#survdiff function
+survdiffed <- function(datted=kapped, timed=30){
+  
+  #end of f/u
+  point <- summary(datted,times=timed)
+  
+  #pb-cap
+  pb <- 100*(point$surv[2] - point$surv[1])
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+    
+  #mc-cap
+  mc <- 100*(point$surv[3] - point$surv[1])
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  
+  #worker-cap
+  wc <- 100*(point$surv[4] - point$surv[1])
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  
+  #nilf-cap
+  nc <- 100*(point$surv[5] - point$surv[1])
+  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  
+  rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(nc, nc_lower, nc_upper))
+  
+}
+
+#tidying regression output function
+tidy_n <- function(modded=mod, rows=1:4, cols=c(1,2,7,8), bind=binded, captioned="Ref: capitalist") {
+  tidydf <- cbind(tidy(modded, exponentiate=T, conf.int=T)[rows, cols], bind)
+  tidydf$N <- c(length(modded$residuals), NA, NA, NA)
+  kable(tidydf, digits=c(2,2,2,2,1,1,1,1), caption=captioned, col.names=c(" ", "HR", "Lower", "Upper", "SD", "Lower", "Upper", "N")) %>%
+    kable_styling("striped") %>%
+    add_header_above(c(" ", "HR"=3, "SD per 100 at end of f/u"=3, " "))
+}
+
+#alternative KM approach using ggsurvplot - makes it look like more of a traditional KM plot (with steps), but is harder to read
+#plotted <- ggsurvplot(kapped, 
+#           ylim=c(0.6, 1.0),
+#           conf.int = T,
+#           axes.offset=T,
+#           censor=F,
+#           palette=brewer.pal(n = 12, name = "Paired")[c(2,4,6,8,10)],
+#           legend="none",
+#           ggtheme=theme_light()) +
+#  ylab("Probability of survival") +
+#  xlab("Year") 
+#
+#plotted %++%
+#  geom_dl(aes(label = class), method = 'last.qp')
+```
+
+## Overall
+
+### Distribution of IPW
+
+```{r warning=FALSE, message=FALSE}
+dat_sub %>%
+  filter(!is.na(class) & !is.na(age) & !is.na(sex) & !is.na(year)) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(year, 5), 
+                     data = subset(dat_sub, !is.na(class) & !is.na(age) & !is.na(sex) & !is.na(year)),
+                     weights=mortwt_f,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_overall
+
+summary(dat_sub_overall$sw)
+```
+
+```{r warning=FALSE, message=FALSE}
+kapped <- survfit(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_overall, se=T)
+mod <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_overall)
+binded <- survdiffed()
+```
+
+### Survival plot
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=6}
+plotted()
+
+ggsave("overall_survival.png", dpi=600, height=4, width=6)
+```
+
+### Survival difference and hazard ratio
+
+```{r}
+tidy_n()
+```
+
+## 1986-1995 waves w/ f/u through end of 1996 vs 2005-2014 waves w/ f/u through end of 2015
+
+### Distribution of IPW
+
+#### Early wave
+
+```{r warning=FALSE, message=FALSE}
+dat_sub %>%
+  filter(year<=1995 & !is.na(class) & !is.na(age) & !is.na(sex) & !is.na(year)) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(year, 3), 
+                     data = subset(dat_sub, year<=1995 & !is.na(class) & !is.na(age) & !is.na(sex) & !is.na(year)),
+                     weights=mortwt_f,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_1986
+
+summary(dat_sub_1986$sw)
+```
+
+#### Late wave
+
+```{r warning=FALSE, message=FALSE}
+dat_sub %>%
+  filter(year>=2005 & !is.na(class) & !is.na(age) & !is.na(sex) & !is.na(year)) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(year, 3), 
+                     data = subset(dat_sub, year>=2005 & !is.na(class) & !is.na(age) & !is.na(sex) & !is.na(year)),
+                     weights=mortwt_f,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_2005
+
+summary(dat_sub_2005$sw)
+```
+
+```{r warning=FALSE, message=FALSE}
+#early
+kapped_early <- survfit(Surv(time_1996, dead_1996)~class, robust=T, w=sw_f, data=dat_sub_1986, se=T)
+mod_early <- coxph(Surv(time_1996, dead_1996)~class, robust=T, w=sw_f, data=dat_sub_1986)
+binded_early <- survdiffed(kapped_early, timed=11)
+
+#late
+kapped_late <- survfit(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_2005, se=T)
+mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_2005)
+binded_late <- survdiffed(kapped_late, timed=11)
+```
+
+### Survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4.5, fig.width=8.5}
+plotted(datted=kapped_early, caps=43, pbs=44, mans=43, works=44, nilfs=44) + 
+  ggtitle("1986-1995 with follow-up through 1996") + 
+  scale_y_continuous(limits=c(0.88, 1.0), breaks=c(0.88, 0.91, 0.94, 0.97, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.11))) +
+plotted(datted=kapped_late, caps=33, pbs=44, mans=44, works=44, nilfs=44) + 
+  ggtitle("2005-2014 with follow-up through 2015") + 
+  scale_y_continuous(limits=c(0.88, 1.0), breaks=c(0.88, 0.91, 0.94, 0.97, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.11))) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+
+ggsave("change_over_time.png", dpi=600, height=4, width=8.5)
+```
+
+### Survival difference and hazard ratio
+
+```{r}
+tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-1995 subset)")
+tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2005-2014 subset)")
+```
+
+# Session info
+
+```{r  warning=FALSE, message=FALSE}
+sessionInfo()
+```
