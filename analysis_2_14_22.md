@@ -11,25 +11,34 @@ output:
 always_allow_html: true
 ---
 
-* Analysis:
-
-    + subdivide workers (and managers?) based on ONET or Krieger's method
-    + compare results using classwk/classwk2 2001-2003 when the variables overlap
-    + incorporate firmno variable (numemps) for capitalist vs PB from 1997-2014 as sensitivity/descriptive analysis?
-    + sensitivity using survey design object - show SEs are similar to main
-    + estimate proportions in classes over time
-    
-* Investigate: 
-    + need to handle hispanic oversample correctly: advice here: https://nhis.ipums.org/nhis/userNotes_Hispanic_oversample.shtml
-        + do so by using inverse probability of selection weights in sensitivity analyses? Tig says that makes sense, check if anyone ever responds on IPUMS forum
-
+* Overview: 
+    + Descriptive analyses of class and mortality in the 1986-2014 NHIS with mortality follow-up through the end of 2015. Kaplan-meier curves and Cox models are minimally adjusted (age, gender, race) using IPW.
+    + Capitalists are those who are self-employed in an incorporated business
+    + The petite bourgeoisie (PBs) are those who are self-employed in an unincorporated business
+    + Managers are those who are not self-employed but who are employed and who have an occupation of "officials and administrators, public administration", "managers and administrators, except public administration", or "management related occupations" 
+    + Workers are those who are unemployed OR who are employed but do not have a management occupation
+    + Not in the labor force (NILFs) are those who are "not in the labor force". 
+<br>
+* To-do:
+    + Improve coding of missing data exclusions
+    + Make third period for change over time analyses
+    + Compare descriptives and results using classwk/classwk2 2001-2003 when the variables overlap
+    + Incorporate firmno variable (numemps) for capitalist vs PB from 1997-2014 as sensitivity/descriptive analysis
+<br>
+* Questions/investigate: 
+    + White vs Black instead of NH white vs POC?
+    + Do more-adjusted analyses or just leave basically unadjusted (aside from gender, age, year)? could be interesting to see if inequities increase over time even after adjustment
+    + Subdivide workers (and managers?) based on ONET or Krieger's method?
+    + Where should we cluster SEs, given that the kaplan meier survey function doesn't work - at the household, strata, or strata*psu levels? or just use unclustered robust SEs?
+    + Need to handle Hispanic oversample correctly - advice here: https://nhis.ipums.org/nhis/userNotes_Hispanic_oversample.shtml. Potentially do so by using inverse probability of selection weights in sensitivity analyses?
+<br>
 * General notes:
-    + originally was hoping to examine cause-specific mortality, but I'm not sure it makes sense as counts are small, detailed cause of death not available from 2005-on, and would need to handle competing events
-    + i don't think it's worth doing MICE since there's very little missingness and it'd be incredibly computationally intensive given the size of the dataset
-
+    + Originally was hoping to examine cause-specific mortality, but I'm not sure it makes sense as counts are small, detailed cause of death not available from 2005-on, and would need to handle competing events
+    + I don't think it's worth doing MICE since there's very little missingness and it'd be incredibly computationally intensive given the size of the dataset
+<br>
 * Methods notes: 
-    + when robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rathert than frequency weights)
-    + citations for propensity score approach: https://www.ncbi.nlm.nih.gov/labs/pmc/articles/PMC5802372/; https://journals.sagepub.com/doi/full/10.1177/0193841X20938497
+    + When robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rather than frequency weights)
+    + Citations for propensity score approach: https://www.ncbi.nlm.nih.gov/labs/pmc/articles/PMC5802372/; https://journals.sagepub.com/doi/full/10.1177/0193841X20938497
   
 
 
@@ -90,13 +99,13 @@ dat_sub %>%
          time_1996=ifelse(year>1996, NA,
                           ifelse(dead_1996==1, mortdody + (mortdodq/365) - year,
                                  ifelse(dead_1996==0, 1997-year, NA))),
-         manager=ifelse(occ1995>=102 & occ1995<=104, 1, 0),
-         class=factor(ifelse(empstat==220, "NILF",
-                             ifelse((empstat>=210 & empstat<=214) | (year<2001 & (classwk>=20 & classwk<=34) & manager!=1) | (year>=2001 & (classwk2>=1 & classwk2<=4) & manager!=1), "Worker",
-                                    ifelse((year<2001 & (classwk>=20 & classwk<=34) & manager==1) | (year>=2001 & (classwk2>=1 & classwk2<=4) & manager==1), "Manager",
-                                           ifelse((year<2001 & classwk==41) | (year>=2001 & classwk2==5 & jobsecincorp==2), "Capitalist",
-                                                  ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "PB", NA))))), 
-                     levels=c("Capitalist", "PB", "Manager", "Worker", "NILF")),
+         managers=ifelse(occ1995>=102 & occ1995<=104, 1, 0),
+         class=factor(ifelse(empstat==220, "NILFs",
+                             ifelse((empstat>=210 & empstat<=214) | (year<2001 & (classwk>=20 & classwk<=34) & managers!=1) | (year>=2001 & (classwk2>=1 & classwk2<=4) & managers!=1), "Workers",
+                                    ifelse((year<2001 & (classwk>=20 & classwk<=34) & managers==1) | (year>=2001 & (classwk2>=1 & classwk2<=4) & managers==1), "Managers",
+                                           ifelse((year<2001 & classwk==41) | (year>=2001 & classwk2==5 & jobsecincorp==2), "Capitalists",
+                                                  ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "PBs", NA))))), 
+                     levels=c("Capitalists", "PBs", "Managers", "Workers", "NILFs")),
          race=ifelse(racesr==100, "White", 
                      ifelse(racesr==200, "Black", "Other")),
          race_h=factor(ifelse(hispeth!=10, "Hispanic",
@@ -104,6 +113,7 @@ dat_sub %>%
                                      ifelse(hispeth==10 & race=="Black", "NH black", "NH other"))), levels=c("NH white", "NH black", "Hispanic", "NH other")),
          poc=ifelse(race_h=="NH white", "NH white", "POC"),
          sex=ifelse(sex==1, "male", "female"),
+         race_h_sex=paste(race_h, sex),
          educ=factor(ifelse(educrec1<13, "<HS",
                             ifelse(educrec1==13, "HS",
                                    ifelse(educrec1==14, "Some college", "College+"))), levels=c("<HS", "HS", "Some college", "College+")),
@@ -113,55 +123,57 @@ dat_sub %>%
          region=ifelse(region==1, "NE", 
                        ifelse(region==2, "MW",
                               ifelse(region==3, "S", "W"))),
-         class_gender=factor(ifelse(class=="Worker" & sex=="male", "Male worker",
-                                    ifelse(class=="Worker" & sex=="female", "Female worker",
-                                           ifelse(class=="Manager" & sex=="male", "Male manager",
-                                                  ifelse(class=="Manager" & sex=="female", "Female manager",
-                                                         ifelse(class=="PB" & sex=="male", "Male PB",
-                                                                ifelse(class=="PB" & sex=="female", "Female PB",
-                                                                       ifelse(class=="Capitalist" & sex=="male", "Male capitalist",
-                                                                              ifelse(class=="Capitalist" & sex=="female", "Female capitalist",
-                                                                                     ifelse(class=="NILF" & sex=="male", "Male NILF",
-                                                                                            ifelse(class=="NILF" & sex=="female", "Female NILF", NA)))))))))),
-                             levels=c("Male capitalist", "Male PB", "Male manager", "Male worker", "Male NILF",
-                                      "Female capitalist", "Female PB", "Female manager", "Female worker", "Female NILF")),
-         class_poc=factor(ifelse(class=="Worker" & poc=="NH white", "NH white worker",
-                                 ifelse(class=="Worker" & poc=="POC", "POC worker",
-                                        ifelse(class=="Manager" & poc=="NH white", "NH white manager",
-                                               ifelse(class=="Manager" & poc=="POC", "POC manager",
-                                                      ifelse(class=="PB" & poc=="NH white", "NH white PB",
-                                                             ifelse(class=="PB" & poc=="POC", "POC PB",
-                                                                    ifelse(class=="Capitalist" & poc=="NH white", "NH white capitalist",
-                                                                           ifelse(class=="Capitalist" & poc=="POC", "POC capitalist", 
-                                                                                  ifelse(class=="NILF" & poc=="NH white", "NH white NILF", 
-                                                                                         ifelse(class=="NILF" & poc=="POC", "POC NILF", NA)))))))))),
-                          levels=c("NH white capitalist", "NH white PB", "NH white manager", "NH white worker", "NH white NILF",
-                                   "POC capitalist", "POC PB", "POC manager", "POC worker", "POC NILF")),
-         class_region=factor(ifelse(class=="Worker" & region=="MW", "MW worker",
-                                    ifelse(class=="Worker" & region=="NE", "NE worker",
-                                           ifelse(class=="Worker" & region=="S", "S worker",
-                                                  ifelse(class=="Worker" & region=="W", "W worker",
-                                                         ifelse(class=="Manager" & region=="MW", "MW manager",
-                                                                ifelse(class=="Manager" & region=="NE", "NE manager",
-                                                                       ifelse(class=="Manager" & region=="S", "S manager",
-                                                                              ifelse(class=="Manager" & region=="W", "W manager",
-                                                                                     ifelse(class=="PB" & region=="MW", "MW PB",
-                                                                                            ifelse(class=="PB" & region=="NE", "NE PB",
-                                                                                                   ifelse(class=="PB" & region=="S", "S PB",
-                                                                                                          ifelse(class=="PB" & region=="W", "W PB",
-                                                                                                                 ifelse(class=="Capitalist" & region=="MW", "MW capitalist",
-                                                                                                                        ifelse(class=="Capitalist" & region=="NE", "NE capitalist",
-                                                                                                                               ifelse(class=="Capitalist" & region=="S", "S capitalist",
-                                                                                                                                      ifelse(class=="Capitalist" & region=="W", "W capitalist", 
-                                                                                                                                             ifelse(class=="NILF" & region=="MW", "MW NILF",
-                                                                                                                                                    ifelse(class=="NILF" & region=="NE", "NE NILF",
-                                                                                                                                                           ifelse(class=="NILF" & region=="S", "S NILF",
-                                                                                                                                                                  ifelse(class=="NILF" & region=="W", "W NILF", NA)))))))))))))))))))),
-                             levels=c("MW capitalist", "NE capitalist", "S capitalist", "W capitalist",
-                                      "MW PB", "NE PB", "S PB", "W PB", 
-                                      "MW manager", "NE manager", "S manager", "W manager",
-                                      "MW worker", "NE worker", "S worker", "W worker",
-                                      "MW NILF", "NE NILF", "S NILF", "W NILF"))) -> dat_sub
+         incimp1_rev=ifelse(year<2007, NA,
+                            ifelse(incimp1>66, 66, incimp1)),
+         class_gender=factor(ifelse(class=="Workers" & sex=="male", "Male workers",
+                                    ifelse(class=="Workers" & sex=="female", "Female workers",
+                                           ifelse(class=="Managers" & sex=="male", "Male managers",
+                                                  ifelse(class=="Managers" & sex=="female", "Female managers",
+                                                         ifelse(class=="PBs" & sex=="male", "Male PBs",
+                                                                ifelse(class=="PBs" & sex=="female", "Female PBs",
+                                                                       ifelse(class=="Capitalists" & sex=="male", "Male capitalists",
+                                                                              ifelse(class=="Capitalists" & sex=="female", "Female capitalists",
+                                                                                     ifelse(class=="NILFs" & sex=="male", "Male NILFs",
+                                                                                            ifelse(class=="NILFs" & sex=="female", "Female NILFs", NA)))))))))),
+                             levels=c("Male capitalists", "Male PBs", "Male managers", "Male workers", "Male NILFs",
+                                      "Female capitalists", "Female PBs", "Female managers", "Female workers", "Female NILFs")),
+         class_poc=factor(ifelse(class=="Workers" & poc=="NH white", "NH white workers",
+                                 ifelse(class=="Workers" & poc=="POC", "POC workers",
+                                        ifelse(class=="Managers" & poc=="NH white", "NH white managers",
+                                               ifelse(class=="Managers" & poc=="POC", "POC managers",
+                                                      ifelse(class=="PBs" & poc=="NH white", "NH white PBs",
+                                                             ifelse(class=="PBs" & poc=="POC", "POC PBs",
+                                                                    ifelse(class=="Capitalists" & poc=="NH white", "NH white capitalists",
+                                                                           ifelse(class=="Capitalists" & poc=="POC", "POC capitalists", 
+                                                                                  ifelse(class=="NILFs" & poc=="NH white", "NH white NILFs", 
+                                                                                         ifelse(class=="NILFs" & poc=="POC", "POC NILFs", NA)))))))))),
+                          levels=c("NH white capitalists", "NH white PBs", "NH white managers", "NH white workers", "NH white NILFs",
+                                   "POC capitalists", "POC PBs", "POC managers", "POC workers", "POC NILFs")),
+         class_region=factor(ifelse(class=="Workers" & region=="MW", "MW workers",
+                                    ifelse(class=="Workers" & region=="NE", "NE workers",
+                                           ifelse(class=="Workers" & region=="S", "S workers",
+                                                  ifelse(class=="Workers" & region=="W", "W workers",
+                                                         ifelse(class=="Managers" & region=="MW", "MW managers",
+                                                                ifelse(class=="Managers" & region=="NE", "NE managers",
+                                                                       ifelse(class=="Managers" & region=="S", "S managers",
+                                                                              ifelse(class=="Managers" & region=="W", "W managers",
+                                                                                     ifelse(class=="PBs" & region=="MW", "MW PBs",
+                                                                                            ifelse(class=="PBs" & region=="NE", "NE PBs",
+                                                                                                   ifelse(class=="PBs" & region=="S", "S PBs",
+                                                                                                          ifelse(class=="PBs" & region=="W", "W PBs",
+                                                                                                                 ifelse(class=="Capitalists" & region=="MW", "MW capitalists",
+                                                                                                                        ifelse(class=="Capitalists" & region=="NE", "NE capitalists",
+                                                                                                                               ifelse(class=="Capitalists" & region=="S", "S capitalists",
+                                                                                                                                      ifelse(class=="Capitalists" & region=="W", "W capitalists", 
+                                                                                                                                             ifelse(class=="NILFs" & region=="MW", "MW NILFs",
+                                                                                                                                                    ifelse(class=="NILFs" & region=="NE", "NE NILFs",
+                                                                                                                                                           ifelse(class=="NILFs" & region=="S", "S NILFs",
+                                                                                                                                                                  ifelse(class=="NILFs" & region=="W", "W NILFs", NA)))))))))))))))))))),
+                             levels=c("MW capitalists", "NE capitalists", "S capitalists", "W capitalists",
+                                      "MW PBs", "NE PBs", "S PBs", "W PBs", 
+                                      "MW managers", "NE managers", "S managers", "W managers",
+                                      "MW workers", "NE workers", "S workers", "W workers",
+                                      "MW NILFs", "NE NILFs", "S NILFs", "W NILFs"))) -> dat_sub
                                                                                      
 #exclude couple respondents with negative follow-up time
 dat_sub %>%
@@ -231,7 +243,9 @@ kable(bind_rows(dat_age_na, dat_other_na), digits=2, col.names=c("Variable", "Pe
 
 # Descriptives
 
-## Unweighted and stratified with missingness in variables of interest (aside from age and class)
+Excluding missingness unless otherwise noted
+
+## Unweighted and stratified table one with missingness in variables of interest (aside from age and class)
 
 
 ```r
@@ -250,11 +264,11 @@ kable(x[,1:5]) %>%
  <thead>
   <tr>
    <th style="text-align:left;">   </th>
-   <th style="text-align:left;"> Capitalist </th>
-   <th style="text-align:left;"> PB </th>
-   <th style="text-align:left;"> Manager </th>
-   <th style="text-align:left;"> Worker </th>
-   <th style="text-align:left;"> NILF </th>
+   <th style="text-align:left;"> Capitalists </th>
+   <th style="text-align:left;"> PBs </th>
+   <th style="text-align:left;"> Managers </th>
+   <th style="text-align:left;"> Workers </th>
+   <th style="text-align:left;"> NILFs </th>
   </tr>
  </thead>
 <tbody>
@@ -461,19 +475,544 @@ kable(x[,1:5]) %>%
 </tbody>
 </table>
 
+## Weighted and stratified table one 
+
+
+```r
+dat_sub_svy <- svydesign(ids = ~ psu,
+                         strata = ~ strata, 
+                         weights = ~ mortwt_f,
+                         nest=TRUE, 
+                         data=dat_sub)
+
+x <- svyCreateTableOne(data = dat_sub_svy, vars=vars, factorVars=catvars, strata='class', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p')
+kable(x[,1:5]) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+<table class="table table-striped table-condensed" style="margin-left: auto; margin-right: auto;">
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:left;"> Capitalists </th>
+   <th style="text-align:left;"> PBs </th>
+   <th style="text-align:left;"> Managers </th>
+   <th style="text-align:left;"> Workers </th>
+   <th style="text-align:left;"> NILFs </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> n </td>
+   <td style="text-align:left;"> 82257513.0 </td>
+   <td style="text-align:left;"> 224612806.0 </td>
+   <td style="text-align:left;"> 348786191.0 </td>
+   <td style="text-align:left;"> 2123537226.0 </td>
+   <td style="text-align:left;"> 750119337.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> sex = male (%) </td>
+   <td style="text-align:left;"> 73.4 </td>
+   <td style="text-align:left;"> 61.9 </td>
+   <td style="text-align:left;"> 54.4 </td>
+   <td style="text-align:left;"> 52.3 </td>
+   <td style="text-align:left;"> 29.8 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> race_h (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NH white </td>
+   <td style="text-align:left;"> 84.8 </td>
+   <td style="text-align:left;"> 80.0 </td>
+   <td style="text-align:left;"> 80.7 </td>
+   <td style="text-align:left;"> 70.3 </td>
+   <td style="text-align:left;"> 69.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NH black </td>
+   <td style="text-align:left;"> 3.7 </td>
+   <td style="text-align:left;"> 5.9 </td>
+   <td style="text-align:left;"> 7.9 </td>
+   <td style="text-align:left;"> 12.4 </td>
+   <td style="text-align:left;"> 12.8 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Hispanic </td>
+   <td style="text-align:left;"> 6.3 </td>
+   <td style="text-align:left;"> 9.8 </td>
+   <td style="text-align:left;"> 6.7 </td>
+   <td style="text-align:left;"> 12.4 </td>
+   <td style="text-align:left;"> 12.9 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NH other </td>
+   <td style="text-align:left;"> 5.2 </td>
+   <td style="text-align:left;"> 4.4 </td>
+   <td style="text-align:left;"> 4.7 </td>
+   <td style="text-align:left;"> 5.0 </td>
+   <td style="text-align:left;"> 5.3 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> educ (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> &lt;HS </td>
+   <td style="text-align:left;"> 5.1 </td>
+   <td style="text-align:left;"> 12.7 </td>
+   <td style="text-align:left;"> 2.2 </td>
+   <td style="text-align:left;"> 11.5 </td>
+   <td style="text-align:left;"> 23.9 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> HS </td>
+   <td style="text-align:left;"> 24.2 </td>
+   <td style="text-align:left;"> 34.0 </td>
+   <td style="text-align:left;"> 18.4 </td>
+   <td style="text-align:left;"> 34.0 </td>
+   <td style="text-align:left;"> 35.5 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Some college </td>
+   <td style="text-align:left;"> 26.2 </td>
+   <td style="text-align:left;"> 25.9 </td>
+   <td style="text-align:left;"> 26.1 </td>
+   <td style="text-align:left;"> 27.2 </td>
+   <td style="text-align:left;"> 23.1 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> College+ </td>
+   <td style="text-align:left;"> 44.5 </td>
+   <td style="text-align:left;"> 27.5 </td>
+   <td style="text-align:left;"> 53.3 </td>
+   <td style="text-align:left;"> 27.3 </td>
+   <td style="text-align:left;"> 17.4 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> marital_tri (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Married </td>
+   <td style="text-align:left;"> 81.4 </td>
+   <td style="text-align:left;"> 73.6 </td>
+   <td style="text-align:left;"> 71.0 </td>
+   <td style="text-align:left;"> 65.5 </td>
+   <td style="text-align:left;"> 67.3 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Single </td>
+   <td style="text-align:left;"> 7.9 </td>
+   <td style="text-align:left;"> 11.8 </td>
+   <td style="text-align:left;"> 14.6 </td>
+   <td style="text-align:left;"> 18.1 </td>
+   <td style="text-align:left;"> 13.9 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Widowed/divorced/separated </td>
+   <td style="text-align:left;"> 10.7 </td>
+   <td style="text-align:left;"> 14.6 </td>
+   <td style="text-align:left;"> 14.4 </td>
+   <td style="text-align:left;"> 16.4 </td>
+   <td style="text-align:left;"> 18.8 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> region (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> MW </td>
+   <td style="text-align:left;"> 23.3 </td>
+   <td style="text-align:left;"> 23.6 </td>
+   <td style="text-align:left;"> 23.6 </td>
+   <td style="text-align:left;"> 24.9 </td>
+   <td style="text-align:left;"> 21.7 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NE </td>
+   <td style="text-align:left;"> 19.8 </td>
+   <td style="text-align:left;"> 16.7 </td>
+   <td style="text-align:left;"> 20.2 </td>
+   <td style="text-align:left;"> 19.0 </td>
+   <td style="text-align:left;"> 18.6 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> S </td>
+   <td style="text-align:left;"> 35.8 </td>
+   <td style="text-align:left;"> 34.0 </td>
+   <td style="text-align:left;"> 34.4 </td>
+   <td style="text-align:left;"> 35.3 </td>
+   <td style="text-align:left;"> 37.7 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> W </td>
+   <td style="text-align:left;"> 21.0 </td>
+   <td style="text-align:left;"> 25.7 </td>
+   <td style="text-align:left;"> 21.9 </td>
+   <td style="text-align:left;"> 20.8 </td>
+   <td style="text-align:left;"> 22.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> age (median [IQR]) </td>
+   <td style="text-align:left;"> 46.00 [38.00, 53.00] </td>
+   <td style="text-align:left;"> 44.00 [36.00, 53.00] </td>
+   <td style="text-align:left;"> 42.00 [34.00, 50.00] </td>
+   <td style="text-align:left;"> 40.00 [32.00, 50.00] </td>
+   <td style="text-align:left;"> 48.00 [36.00, 58.00] </td>
+  </tr>
+</tbody>
+</table>
+
+## Weighted and stratified class composition of gender-races 
+
+
+```r
+x <- svyCreateTableOne(data = subset(dat_sub_svy, !is.na(race_h)), vars='class', factorVars='class', strata='race_h_sex', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p')
+kable(x[2:7,1:8]) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+<table class="table table-striped table-condensed" style="margin-left: auto; margin-right: auto;">
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:left;"> Hispanic female </th>
+   <th style="text-align:left;"> Hispanic male </th>
+   <th style="text-align:left;"> NH black female </th>
+   <th style="text-align:left;"> NH black male </th>
+   <th style="text-align:left;"> NH other female </th>
+   <th style="text-align:left;"> NH other male </th>
+   <th style="text-align:left;"> NH white female </th>
+   <th style="text-align:left;"> NH white male </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> class (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Capitalists </td>
+   <td style="text-align:left;"> 0.6 </td>
+   <td style="text-align:left;"> 1.9 </td>
+   <td style="text-align:left;"> 0.3 </td>
+   <td style="text-align:left;"> 1.2 </td>
+   <td style="text-align:left;"> 1.6 </td>
+   <td style="text-align:left;"> 3.3 </td>
+   <td style="text-align:left;"> 1.4 </td>
+   <td style="text-align:left;"> 4.1 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> PBs </td>
+   <td style="text-align:left;"> 4.3 </td>
+   <td style="text-align:left;"> 6.4 </td>
+   <td style="text-align:left;"> 2.2 </td>
+   <td style="text-align:left;"> 4.6 </td>
+   <td style="text-align:left;"> 4.4 </td>
+   <td style="text-align:left;"> 6.8 </td>
+   <td style="text-align:left;"> 5.3 </td>
+   <td style="text-align:left;"> 8.9 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Managers </td>
+   <td style="text-align:left;"> 5.4 </td>
+   <td style="text-align:left;"> 5.9 </td>
+   <td style="text-align:left;"> 7.1 </td>
+   <td style="text-align:left;"> 6.6 </td>
+   <td style="text-align:left;"> 8.4 </td>
+   <td style="text-align:left;"> 10.4 </td>
+   <td style="text-align:left;"> 9.7 </td>
+   <td style="text-align:left;"> 12.6 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Workers </td>
+   <td style="text-align:left;"> 52.8 </td>
+   <td style="text-align:left;"> 75.1 </td>
+   <td style="text-align:left;"> 62.6 </td>
+   <td style="text-align:left;"> 68.5 </td>
+   <td style="text-align:left;"> 54.4 </td>
+   <td style="text-align:left;"> 66.5 </td>
+   <td style="text-align:left;"> 55.6 </td>
+   <td style="text-align:left;"> 62.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NILFs </td>
+   <td style="text-align:left;"> 36.9 </td>
+   <td style="text-align:left;"> 10.6 </td>
+   <td style="text-align:left;"> 27.8 </td>
+   <td style="text-align:left;"> 19.1 </td>
+   <td style="text-align:left;"> 31.1 </td>
+   <td style="text-align:left;"> 12.9 </td>
+   <td style="text-align:left;"> 28.0 </td>
+   <td style="text-align:left;"> 12.4 </td>
+  </tr>
+</tbody>
+</table>
+
+## Weighted proportions in classes over time 
+
+
+```r
+dat_sub %>%
+  filter(!is.na(class) & !is.na(age) & !is.na(sex) & !is.na(year)) %>%
+  group_by(class, year) %>%
+  summarise(n = sum(mortwt_f)) %>%
+  ungroup() %>%
+  group_by(year) %>%
+  mutate(prop = n / sum(n)) -> propped
+
+ggplot(propped, aes(x=year, y=prop, group=class, color=class, label=class)) +
+  geom_dl(method='last.qp') +
+  geom_line() +
+  scale_color_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,8,4,10,6)]) +
+  scale_x_continuous(expand=expansion(mult=c(0,0.14))) +
+  scale_y_continuous(limits=c(0, 0.63), expand=expansion(mult=c(0,0))) +
+  xlab("Year") +
+  ylab("Proportion") +
+  theme_light() +
+  theme(legend.position = "none")
+```
+
+![](analysis_2_14_22_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+
+## Family income distribution across classes from 2007-2014 
+
+Income coding inconsistent prior to 2007. Unadjusted for inflation. Row label shows lower bound of category.
+
+
+```r
+x <- svyCreateTableOne(data = subset(dat_sub_svy, year>=2007), vars='incimp1_rev', factorVars='incimp1_rev', strata='class', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p')
+row.names(x)[3:23] <- c(paste0(seq(0,95,5), "k"),">=100k")
+kable(x[3:23,1:5]) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+<table class="table table-striped table-condensed" style="margin-left: auto; margin-right: auto;">
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:left;"> Capitalists </th>
+   <th style="text-align:left;"> PBs </th>
+   <th style="text-align:left;"> Managers </th>
+   <th style="text-align:left;"> Workers </th>
+   <th style="text-align:left;"> NILFs </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> 0k </td>
+   <td style="text-align:left;"> 0.7 </td>
+   <td style="text-align:left;"> 2.4 </td>
+   <td style="text-align:left;"> 0.5 </td>
+   <td style="text-align:left;"> 1.5 </td>
+   <td style="text-align:left;"> 4.2 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 5k </td>
+   <td style="text-align:left;"> 0.6 </td>
+   <td style="text-align:left;"> 2.9 </td>
+   <td style="text-align:left;"> 0.5 </td>
+   <td style="text-align:left;"> 2.0 </td>
+   <td style="text-align:left;"> 8.3 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 10k </td>
+   <td style="text-align:left;"> 1.2 </td>
+   <td style="text-align:left;"> 5.0 </td>
+   <td style="text-align:left;"> 0.8 </td>
+   <td style="text-align:left;"> 3.1 </td>
+   <td style="text-align:left;"> 8.4 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 15k </td>
+   <td style="text-align:left;"> 1.5 </td>
+   <td style="text-align:left;"> 4.5 </td>
+   <td style="text-align:left;"> 1.0 </td>
+   <td style="text-align:left;"> 3.6 </td>
+   <td style="text-align:left;"> 7.3 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 20k </td>
+   <td style="text-align:left;"> 2.0 </td>
+   <td style="text-align:left;"> 5.2 </td>
+   <td style="text-align:left;"> 1.4 </td>
+   <td style="text-align:left;"> 4.6 </td>
+   <td style="text-align:left;"> 7.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 25k </td>
+   <td style="text-align:left;"> 1.7 </td>
+   <td style="text-align:left;"> 5.0 </td>
+   <td style="text-align:left;"> 1.7 </td>
+   <td style="text-align:left;"> 4.6 </td>
+   <td style="text-align:left;"> 5.8 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 30k </td>
+   <td style="text-align:left;"> 2.8 </td>
+   <td style="text-align:left;"> 5.0 </td>
+   <td style="text-align:left;"> 2.2 </td>
+   <td style="text-align:left;"> 5.1 </td>
+   <td style="text-align:left;"> 5.6 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 35k </td>
+   <td style="text-align:left;"> 3.1 </td>
+   <td style="text-align:left;"> 5.3 </td>
+   <td style="text-align:left;"> 2.8 </td>
+   <td style="text-align:left;"> 4.9 </td>
+   <td style="text-align:left;"> 5.1 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 40k </td>
+   <td style="text-align:left;"> 3.6 </td>
+   <td style="text-align:left;"> 5.2 </td>
+   <td style="text-align:left;"> 3.2 </td>
+   <td style="text-align:left;"> 5.2 </td>
+   <td style="text-align:left;"> 4.8 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 45k </td>
+   <td style="text-align:left;"> 2.8 </td>
+   <td style="text-align:left;"> 4.2 </td>
+   <td style="text-align:left;"> 3.2 </td>
+   <td style="text-align:left;"> 4.5 </td>
+   <td style="text-align:left;"> 4.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 50k </td>
+   <td style="text-align:left;"> 4.4 </td>
+   <td style="text-align:left;"> 5.3 </td>
+   <td style="text-align:left;"> 3.9 </td>
+   <td style="text-align:left;"> 5.1 </td>
+   <td style="text-align:left;"> 4.2 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 55k </td>
+   <td style="text-align:left;"> 2.5 </td>
+   <td style="text-align:left;"> 3.0 </td>
+   <td style="text-align:left;"> 3.0 </td>
+   <td style="text-align:left;"> 3.8 </td>
+   <td style="text-align:left;"> 2.7 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 60k </td>
+   <td style="text-align:left;"> 3.8 </td>
+   <td style="text-align:left;"> 4.1 </td>
+   <td style="text-align:left;"> 3.5 </td>
+   <td style="text-align:left;"> 4.9 </td>
+   <td style="text-align:left;"> 3.3 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 65k </td>
+   <td style="text-align:left;"> 3.3 </td>
+   <td style="text-align:left;"> 2.8 </td>
+   <td style="text-align:left;"> 3.0 </td>
+   <td style="text-align:left;"> 3.6 </td>
+   <td style="text-align:left;"> 2.4 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 70k </td>
+   <td style="text-align:left;"> 3.4 </td>
+   <td style="text-align:left;"> 3.2 </td>
+   <td style="text-align:left;"> 3.8 </td>
+   <td style="text-align:left;"> 4.0 </td>
+   <td style="text-align:left;"> 2.7 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 75k </td>
+   <td style="text-align:left;"> 4.3 </td>
+   <td style="text-align:left;"> 3.0 </td>
+   <td style="text-align:left;"> 3.6 </td>
+   <td style="text-align:left;"> 3.6 </td>
+   <td style="text-align:left;"> 2.2 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 80k </td>
+   <td style="text-align:left;"> 4.4 </td>
+   <td style="text-align:left;"> 3.0 </td>
+   <td style="text-align:left;"> 3.9 </td>
+   <td style="text-align:left;"> 3.7 </td>
+   <td style="text-align:left;"> 2.5 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 85k </td>
+   <td style="text-align:left;"> 2.3 </td>
+   <td style="text-align:left;"> 2.2 </td>
+   <td style="text-align:left;"> 3.1 </td>
+   <td style="text-align:left;"> 2.7 </td>
+   <td style="text-align:left;"> 1.4 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 90k </td>
+   <td style="text-align:left;"> 3.3 </td>
+   <td style="text-align:left;"> 2.2 </td>
+   <td style="text-align:left;"> 3.2 </td>
+   <td style="text-align:left;"> 3.1 </td>
+   <td style="text-align:left;"> 1.7 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 95k </td>
+   <td style="text-align:left;"> 2.4 </td>
+   <td style="text-align:left;"> 1.9 </td>
+   <td style="text-align:left;"> 2.9 </td>
+   <td style="text-align:left;"> 2.3 </td>
+   <td style="text-align:left;"> 1.2 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> &gt;=100k </td>
+   <td style="text-align:left;"> 45.8 </td>
+   <td style="text-align:left;"> 24.5 </td>
+   <td style="text-align:left;"> 48.7 </td>
+   <td style="text-align:left;"> 24.2 </td>
+   <td style="text-align:left;"> 15.1 </td>
+  </tr>
+</tbody>
+</table>
+
 # Class and all-cause mortality
 
 
 ```r
 #plotting function
-plotted <- function(datted=kapped, caps=120, pbs=120, mans=120, works=120, nilfs=120){
+plotted <- function(datted=kapped, caps=120, pbs=120, mans=120, works=120, nilfs=120, grpd, grps, bottom=0.60){
   
   dat_surv <- data.frame(time=datted$time,
                          surved=datted$surv,
                          se=datted$std.err,
-                         class=c(rep("Caps", caps), rep("PBs", pbs), rep("Mans", mans), rep("Wrks", works), rep("NILFs", nilfs)))
+                         class=c(rep("Caps", caps), rep("PBs", pbs), rep("Mans", mans), rep("Wrks", works), rep("NILFs", nilfs)),
+                         grp=rep(grpd, grps))
 
   ggplot(dat_surv, aes(x=time, y=surved, group=class, color=class, fill=class, label=class)) + 
+    facet_wrap(~grp) +
     geom_line() +
     geom_ribbon(aes(ymin=surved-1.96*se, ymax=surved+1.96*se, color=class), alpha=0.2, lty=0) +
     geom_dl(method='last.qp') +
@@ -482,9 +1021,35 @@ plotted <- function(datted=kapped, caps=120, pbs=120, mans=120, works=120, nilfs
     xlab("Years") +
     ylab("Probability of survival") +
     scale_x_continuous(expand=expansion(mult=c(0,0.09))) +
-    scale_y_continuous(expand=expansion(mult=c(0.01,0))) +
+    scale_y_continuous(limits=c(bottom, 1.0), expand=expansion(mult=c(0,0))) +
     theme_light() +
-    theme(legend.position="none")
+    theme(legend.position="none", strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"))
+}
+
+#plotting function for groups
+plotted_group <- function(datted=kapped, caps1=120, pbs1=120, mans1=120, wrks1=120, nilfs1=120, 
+                          caps2=120, pbs2=120, mans2=120, wrks2=120, nilfs2=120, grpd1, grps1, grpd2, grps2, bottom){
+  
+  dat_surv <- data.frame(time=datted$time,
+                         surved=datted$surv,
+                         se=datted$std.err,
+                         class=c(rep("Caps", caps1), rep("PBs", pbs1), rep("Mans", mans1), rep("Wrks", wrks1), rep("NILFs", nilfs1),
+                                 rep("Caps", caps2), rep("PBs", pbs2), rep("Mans", mans2), rep("Wrks", wrks2), rep("NILFs", nilfs2)),
+                         grp=c(rep(grpd1, grps1), rep(grpd2, grps2)))
+  
+  ggplot(dat_surv, aes(x=time, y=surved, group=class, color=class, fill=class, label=class, bottom)) + 
+    facet_wrap(~grp) +
+    geom_line() +
+    geom_ribbon(aes(ymin=surved-1.96*se, ymax=surved+1.96*se, color=class), alpha=0.2, lty=0) +
+    geom_dl(method='last.qp') +
+    scale_color_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,4,6,8,10)]) +
+    scale_fill_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,4,6,8,10)]) +
+    xlab("Years") +
+    ylab("Probability of survival") +
+    scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+    scale_y_continuous(limits=c(bottom, 1.0), expand=expansion(mult=c(0,0))) +
+    theme_light() +
+    theme(legend.position="none", strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"))
 }
 
 #survdiff function
@@ -517,10 +1082,66 @@ survdiffed <- function(datted=kapped, timed=30){
   
 }
 
+#survdiff function for groups
+survdiffed_group <- function(datted=kapped, timed=30){
+  
+  #end of f/u
+  point <- summary(datted,times=timed)
+  
+  #pb-cap
+  pb <- 100*(point$surv[2] - point$surv[1])
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  
+  #mc-cap
+  mc <- 100*(point$surv[3] - point$surv[1])
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  
+  #worker-cap
+  wc <- 100*(point$surv[4] - point$surv[1])
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  
+  #nilf-cap
+  nc <- 100*(point$surv[5] - point$surv[1])
+  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  
+  #cap2-cap
+  cap2 <- 100*(point$surv[6] - point$surv[1])
+  cap2_lower <- 100*(cap2/100 - 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  cap2_upper <- 100*(cap2/100 + 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  
+  #pb2-cap
+  pb2 <- 100*(point$surv[7] - point$surv[1])
+  pb2_lower <- 100*(pb2/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  pb2_upper <- 100*(pb2/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  
+  #man2-cap
+  man2 <- 100*(point$surv[8] - point$surv[1])
+  man2_lower <- 100*(man2/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  man2_upper <- 100*(man2/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  
+  #wrk2-cap
+  wrk2 <- 100*(point$surv[9] - point$surv[1])
+  wrk2_lower <- 100*(wrk2/100 - 1.96*sqrt(point$std.err[9]^2 + point$std.err[1]^2))
+  wrk2_upper <- 100*(wrk2/100 + 1.96*sqrt(point$std.err[9]^2 + point$std.err[1]^2))
+  
+  #nilf2-cap
+  nilf2 <- 100*(point$surv[10] - point$surv[1])
+  nilf2_lower <- 100*(nilf2/100 - 1.96*sqrt(point$std.err[10]^2 + point$std.err[1]^2))
+  nilf2_upper <- 100*(nilf2/100 + 1.96*sqrt(point$std.err[10]^2 + point$std.err[1]^2))
+  
+  rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(nc, nc_lower, nc_upper),
+        c(cap2, cap2_lower, cap2_upper), c(pb2, pb2_lower, pb2_upper), c(man2, man2_lower, man2_upper), c(wrk2, wrk2_lower, wrk2_upper), c(nilf2, nilf2_lower, nilf2_upper))
+  
+}
+
 #tidying regression output function
-tidy_n <- function(modded=mod, rows=1:4, cols=c(1,2,7,8), bind=binded, captioned="Ref: capitalist") {
+tidy_n <- function(modded=mod, rows=1:4, cols=c(1,2,7,8), bind=binded, nad=3, captioned="Ref: capitalist") {
   tidydf <- cbind(tidy(modded, exponentiate=T, conf.int=T)[rows, cols], bind)
-  tidydf$N <- c(length(modded$residuals), NA, NA, NA)
+  tidydf$N <- c(length(modded$residuals), rep(NA, nad))
   kable(tidydf, digits=c(2,2,2,2,1,1,1,1), caption=captioned, col.names=c(" ", "HR", "Lower", "Upper", "SD", "Lower", "Upper", "N")) %>%
     kable_styling("striped") %>%
     add_header_above(c(" ", "HR"=3, "SD per 100 at end of f/u"=3, " "))
@@ -575,20 +1196,20 @@ mod <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_overall)
 binded <- survdiffed()
 ```
 
-### Survival plot
+### IPW survival plot
 
 
 ```r
-plotted()
+plotted(grpd=NA, grps=600) + theme(strip.background = element_blank(), strip.text.x = element_blank())
 ```
 
-![](analysis_2_14_22_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+![](analysis_2_14_22_files/figure-html/unnamed-chunk-11-1.png)<!-- -->
 
 ```r
 ggsave("overall_survival.png", dpi=600, height=4, width=6)
 ```
 
-### Survival difference and hazard ratio
+### IPW survival difference and hazard ratio
 
 
 ```r
@@ -617,7 +1238,7 @@ tidy_n()
  </thead>
 <tbody>
   <tr>
-   <td style="text-align:left;"> classPB </td>
+   <td style="text-align:left;"> classPBs </td>
    <td style="text-align:right;"> 1.27 </td>
    <td style="text-align:right;"> 1.19 </td>
    <td style="text-align:right;"> 1.36 </td>
@@ -627,7 +1248,7 @@ tidy_n()
    <td style="text-align:right;"> 846227 </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classManager </td>
+   <td style="text-align:left;"> classManagers </td>
    <td style="text-align:right;"> 0.98 </td>
    <td style="text-align:right;"> 0.92 </td>
    <td style="text-align:right;"> 1.05 </td>
@@ -637,7 +1258,7 @@ tidy_n()
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classWorker </td>
+   <td style="text-align:left;"> classWorkers </td>
    <td style="text-align:right;"> 1.31 </td>
    <td style="text-align:right;"> 1.23 </td>
    <td style="text-align:right;"> 1.39 </td>
@@ -647,7 +1268,7 @@ tidy_n()
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classNILF </td>
+   <td style="text-align:left;"> classNILFs </td>
    <td style="text-align:right;"> 2.65 </td>
    <td style="text-align:right;"> 2.49 </td>
    <td style="text-align:right;"> 2.82 </td>
@@ -659,7 +1280,7 @@ tidy_n()
 </tbody>
 </table>
 
-## 1986-1995 waves w/ f/u through end of 1996 vs 2005-2014 waves w/ f/u through end of 2015
+## Change over time - 1986-1995 waves w/ f/u through end of 1996 vs 2005-2014 waves w/ f/u through end of 2015
 
 ### Distribution of IPW
 
@@ -724,28 +1345,26 @@ mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_2005)
 binded_late <- survdiffed(kapped_late, timed=11)
 ```
 
-### Survival plots
+### IPW survival plots
 
 
 ```r
-plotted(datted=kapped_early, caps=43, pbs=44, mans=43, works=44, nilfs=44) + 
-  ggtitle("1986-1995 with follow-up through 1996") + 
+plotted(datted=kapped_early, caps=43, pbs=44, mans=43, works=44, nilfs=44, grpd="1986-1995 with follow-up through 1996", grps=218) + 
   scale_y_continuous(limits=c(0.88, 1.0), breaks=c(0.88, 0.91, 0.94, 0.97, 1.0), expand=expansion(mult=c(0,0))) +
-  scale_x_continuous(breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.11))) +
-plotted(datted=kapped_late, caps=33, pbs=44, mans=44, works=44, nilfs=44) + 
-  ggtitle("2005-2014 with follow-up through 2015") + 
+  scale_x_continuous(limits=c(0, 11), breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.13))) +
+plotted(datted=kapped_late, caps=33, pbs=44, mans=44, works=44, nilfs=44, grpd="2005-2014 with follow-up through 2015", grps=209) + 
   scale_y_continuous(limits=c(0.88, 1.0), breaks=c(0.88, 0.91, 0.94, 0.97, 1.0), expand=expansion(mult=c(0,0))) +
-  scale_x_continuous(breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.11))) +
+  scale_x_continuous(limits=c(0, 11), breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.13))) +
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 ```
 
-![](analysis_2_14_22_files/figure-html/unnamed-chunk-12-1.png)<!-- -->
+![](analysis_2_14_22_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
 
 ```r
 ggsave("change_over_time.png", dpi=600, height=4, width=8.5)
 ```
 
-### Survival difference and hazard ratio
+### IPW survival difference and hazard ratio
 
 
 ```r
@@ -774,7 +1393,7 @@ tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-19
  </thead>
 <tbody>
   <tr>
-   <td style="text-align:left;"> classPB </td>
+   <td style="text-align:left;"> classPBs </td>
    <td style="text-align:right;"> 1.28 </td>
    <td style="text-align:right;"> 1.08 </td>
    <td style="text-align:right;"> 1.54 </td>
@@ -784,7 +1403,7 @@ tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-19
    <td style="text-align:right;"> 540854 </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classManager </td>
+   <td style="text-align:left;"> classManagers </td>
    <td style="text-align:right;"> 1.03 </td>
    <td style="text-align:right;"> 0.86 </td>
    <td style="text-align:right;"> 1.23 </td>
@@ -794,7 +1413,7 @@ tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-19
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classWorker </td>
+   <td style="text-align:left;"> classWorkers </td>
    <td style="text-align:right;"> 1.24 </td>
    <td style="text-align:right;"> 1.05 </td>
    <td style="text-align:right;"> 1.47 </td>
@@ -804,7 +1423,7 @@ tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-19
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classNILF </td>
+   <td style="text-align:left;"> classNILFs </td>
    <td style="text-align:right;"> 3.47 </td>
    <td style="text-align:right;"> 2.94 </td>
    <td style="text-align:right;"> 4.10 </td>
@@ -842,7 +1461,7 @@ tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2005-2014
  </thead>
 <tbody>
   <tr>
-   <td style="text-align:left;"> classPB </td>
+   <td style="text-align:left;"> classPBs </td>
    <td style="text-align:right;"> 1.66 </td>
    <td style="text-align:right;"> 1.18 </td>
    <td style="text-align:right;"> 2.33 </td>
@@ -852,7 +1471,7 @@ tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2005-2014
    <td style="text-align:right;"> 193481 </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classManager </td>
+   <td style="text-align:left;"> classManagers </td>
    <td style="text-align:right;"> 1.22 </td>
    <td style="text-align:right;"> 0.87 </td>
    <td style="text-align:right;"> 1.71 </td>
@@ -862,7 +1481,7 @@ tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2005-2014
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classWorker </td>
+   <td style="text-align:left;"> classWorkers </td>
    <td style="text-align:right;"> 1.75 </td>
    <td style="text-align:right;"> 1.28 </td>
    <td style="text-align:right;"> 2.38 </td>
@@ -872,13 +1491,553 @@ tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2005-2014
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> classNILF </td>
+   <td style="text-align:left;"> classNILFs </td>
    <td style="text-align:right;"> 5.13 </td>
    <td style="text-align:right;"> 3.77 </td>
    <td style="text-align:right;"> 6.99 </td>
    <td style="text-align:right;"> -9.2 </td>
    <td style="text-align:right;"> -10.2 </td>
    <td style="text-align:right;"> -8.2 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
+
+## Class-by-gender interaction
+
+### Distribution of IPW
+
+
+```r
+dat_sub %>%
+  filter(!is.na(class_gender) & !is.na(age) & !is.na(year)) %>%
+  mutate(sw=ipwpoint(exposure=class_gender,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + rcs(year, 3), 
+                     data = subset(dat_sub, !is.na(class_gender) & !is.na(age) & !is.na(year)),
+                     weights=mortwt_f,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_gender
+
+summary(dat_sub_gender$sw)
+```
+
+```
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##  0.2394  0.8559  0.9673  0.9983  1.0843  3.6247
+```
+
+
+```r
+kapped <- survfit(Surv(time,dead)~class_gender, robust=T, w=sw_f, data=dat_sub_gender, se=T)
+mod <- coxph(Surv(time,dead)~class_gender, robust=T, w=sw_f, data=dat_sub_gender)
+binded <- survdiffed_group()
+```
+
+### IPW survival plot
+
+
+```r
+plotted_group(kapped, caps2=112, grpd1="Men", grps1=600, grpd2="Women", grps2=592, bottom=0.50)
+```
+
+![](analysis_2_14_22_files/figure-html/unnamed-chunk-20-1.png)<!-- -->
+
+```r
+ggsave("gender_survival.png", dpi=600, height=4, width=8.5)
+```
+
+### IPW survival difference and hazard ratio
+
+
+```r
+tidy_n(rows=1:9, nad=8, captioned="Ref: male capitalist")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: male capitalist</caption>
+ <thead>
+<tr>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">HR</div></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">SD per 100 at end of f/u</div></th>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+</tr>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> SD </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> class_genderMale PBs </td>
+   <td style="text-align:right;"> 1.29 </td>
+   <td style="text-align:right;"> 1.21 </td>
+   <td style="text-align:right;"> 1.38 </td>
+   <td style="text-align:right;"> -5.7 </td>
+   <td style="text-align:right;"> -7.6 </td>
+   <td style="text-align:right;"> -3.8 </td>
+   <td style="text-align:right;"> 846227 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_genderMale managers </td>
+   <td style="text-align:right;"> 0.96 </td>
+   <td style="text-align:right;"> 0.90 </td>
+   <td style="text-align:right;"> 1.03 </td>
+   <td style="text-align:right;"> -0.4 </td>
+   <td style="text-align:right;"> -2.3 </td>
+   <td style="text-align:right;"> 1.5 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_genderMale workers </td>
+   <td style="text-align:right;"> 1.38 </td>
+   <td style="text-align:right;"> 1.30 </td>
+   <td style="text-align:right;"> 1.47 </td>
+   <td style="text-align:right;"> -6.9 </td>
+   <td style="text-align:right;"> -8.6 </td>
+   <td style="text-align:right;"> -5.3 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_genderMale NILFs </td>
+   <td style="text-align:right;"> 3.16 </td>
+   <td style="text-align:right;"> 2.97 </td>
+   <td style="text-align:right;"> 3.37 </td>
+   <td style="text-align:right;"> -24.3 </td>
+   <td style="text-align:right;"> -26.3 </td>
+   <td style="text-align:right;"> -22.3 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_genderFemale capitalists </td>
+   <td style="text-align:right;"> 0.66 </td>
+   <td style="text-align:right;"> 0.57 </td>
+   <td style="text-align:right;"> 0.75 </td>
+   <td style="text-align:right;"> 8.1 </td>
+   <td style="text-align:right;"> 5.4 </td>
+   <td style="text-align:right;"> 10.8 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_genderFemale PBs </td>
+   <td style="text-align:right;"> 0.82 </td>
+   <td style="text-align:right;"> 0.76 </td>
+   <td style="text-align:right;"> 0.89 </td>
+   <td style="text-align:right;"> 3.2 </td>
+   <td style="text-align:right;"> 1.2 </td>
+   <td style="text-align:right;"> 5.2 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_genderFemale managers </td>
+   <td style="text-align:right;"> 0.68 </td>
+   <td style="text-align:right;"> 0.63 </td>
+   <td style="text-align:right;"> 0.74 </td>
+   <td style="text-align:right;"> 6.1 </td>
+   <td style="text-align:right;"> 4.2 </td>
+   <td style="text-align:right;"> 8.0 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_genderFemale workers </td>
+   <td style="text-align:right;"> 0.83 </td>
+   <td style="text-align:right;"> 0.78 </td>
+   <td style="text-align:right;"> 0.88 </td>
+   <td style="text-align:right;"> 2.3 </td>
+   <td style="text-align:right;"> 0.7 </td>
+   <td style="text-align:right;"> 3.9 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_genderFemale NILFs </td>
+   <td style="text-align:right;"> 1.47 </td>
+   <td style="text-align:right;"> 1.38 </td>
+   <td style="text-align:right;"> 1.56 </td>
+   <td style="text-align:right;"> -6.3 </td>
+   <td style="text-align:right;"> -8.0 </td>
+   <td style="text-align:right;"> -4.7 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
+
+## Class-by-racialized-group interaction
+
+### Distribution of IPW
+
+
+```r
+dat_sub %>%
+  filter(!is.na(class_poc) & !is.na(age) & !is.na(year)) %>%
+  mutate(sw=ipwpoint(exposure=class_poc,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + rcs(year, 3), 
+                     data = subset(dat_sub, !is.na(class_poc) & !is.na(age) & !is.na(year)),
+                     weights=mortwt_f,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_race
+
+summary(dat_sub_race$sw)
+```
+
+```
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##  0.3394  0.8508  0.9296  1.0066  1.1230  4.5727
+```
+
+
+```r
+kapped <- survfit(Surv(time,dead)~class_poc, robust=T, w=sw_f, data=dat_sub_race, se=T)
+mod <- coxph(Surv(time,dead)~class_poc, robust=T, w=sw_f, data=dat_sub_race)
+binded <- survdiffed_group()
+```
+
+### IPW survival plot
+
+
+```r
+plotted_group(kapped, caps1=118, caps2=108, pbs2=119, mans2=117, grpd1="NH white", grps1=598, grpd2="POC", grps2=584, bottom=0.60)
+```
+
+![](analysis_2_14_22_files/figure-html/unnamed-chunk-24-1.png)<!-- -->
+
+```r
+ggsave("race_survival.png", dpi=600, height=4, width=8.5)
+```
+
+### IPW survival difference and hazard ratio
+
+
+```r
+tidy_n(rows=1:9, nad=8, captioned="Ref: white capitalist")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: white capitalist</caption>
+ <thead>
+<tr>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">HR</div></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">SD per 100 at end of f/u</div></th>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+</tr>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> SD </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> class_pocNH white PBs </td>
+   <td style="text-align:right;"> 1.20 </td>
+   <td style="text-align:right;"> 1.13 </td>
+   <td style="text-align:right;"> 1.28 </td>
+   <td style="text-align:right;"> -4.0 </td>
+   <td style="text-align:right;"> -5.7 </td>
+   <td style="text-align:right;"> -2.4 </td>
+   <td style="text-align:right;"> 842493 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_pocNH white managers </td>
+   <td style="text-align:right;"> 0.92 </td>
+   <td style="text-align:right;"> 0.87 </td>
+   <td style="text-align:right;"> 0.98 </td>
+   <td style="text-align:right;"> 0.6 </td>
+   <td style="text-align:right;"> -1.0 </td>
+   <td style="text-align:right;"> 2.2 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_pocNH white workers </td>
+   <td style="text-align:right;"> 1.18 </td>
+   <td style="text-align:right;"> 1.12 </td>
+   <td style="text-align:right;"> 1.25 </td>
+   <td style="text-align:right;"> -3.9 </td>
+   <td style="text-align:right;"> -5.3 </td>
+   <td style="text-align:right;"> -2.4 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_pocNH white NILFs </td>
+   <td style="text-align:right;"> 1.96 </td>
+   <td style="text-align:right;"> 1.85 </td>
+   <td style="text-align:right;"> 2.08 </td>
+   <td style="text-align:right;"> -10.9 </td>
+   <td style="text-align:right;"> -12.4 </td>
+   <td style="text-align:right;"> -9.4 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_pocPOC capitalists </td>
+   <td style="text-align:right;"> 1.17 </td>
+   <td style="text-align:right;"> 1.00 </td>
+   <td style="text-align:right;"> 1.36 </td>
+   <td style="text-align:right;"> 0.8 </td>
+   <td style="text-align:right;"> -2.6 </td>
+   <td style="text-align:right;"> 4.2 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_pocPOC PBs </td>
+   <td style="text-align:right;"> 1.64 </td>
+   <td style="text-align:right;"> 1.51 </td>
+   <td style="text-align:right;"> 1.79 </td>
+   <td style="text-align:right;"> -8.2 </td>
+   <td style="text-align:right;"> -11.1 </td>
+   <td style="text-align:right;"> -5.2 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_pocPOC managers </td>
+   <td style="text-align:right;"> 1.02 </td>
+   <td style="text-align:right;"> 0.93 </td>
+   <td style="text-align:right;"> 1.11 </td>
+   <td style="text-align:right;"> 0.5 </td>
+   <td style="text-align:right;"> -1.9 </td>
+   <td style="text-align:right;"> 2.9 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_pocPOC workers </td>
+   <td style="text-align:right;"> 1.52 </td>
+   <td style="text-align:right;"> 1.44 </td>
+   <td style="text-align:right;"> 1.62 </td>
+   <td style="text-align:right;"> -7.7 </td>
+   <td style="text-align:right;"> -9.2 </td>
+   <td style="text-align:right;"> -6.1 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_pocPOC NILFs </td>
+   <td style="text-align:right;"> 2.43 </td>
+   <td style="text-align:right;"> 2.28 </td>
+   <td style="text-align:right;"> 2.57 </td>
+   <td style="text-align:right;"> -15.1 </td>
+   <td style="text-align:right;"> -16.8 </td>
+   <td style="text-align:right;"> -13.4 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
+
+## Sensitivity analyses
+
+### Regression adjustment instead of IPW for overall Cox analyses
+
+
+```r
+mod <- coxph(Surv(time,dead)~class + rcs(age, 3) + sex + rcs(year, 5), robust=T, w=mortwt_f, data=dat_sub_overall)
+
+kable(cbind(tidy(mod, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], c(length(mod$residuals), NA, NA, NA)), 
+      col.names=c(" ", "HR", "Lower", "Upper", "N"), caption="Ref: capitalist", digits=2) %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: capitalist</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> classPBs </td>
+   <td style="text-align:right;"> 1.31 </td>
+   <td style="text-align:right;"> 1.24 </td>
+   <td style="text-align:right;"> 1.38 </td>
+   <td style="text-align:right;"> 846227 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classManagers </td>
+   <td style="text-align:right;"> 1.00 </td>
+   <td style="text-align:right;"> 0.95 </td>
+   <td style="text-align:right;"> 1.06 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classWorkers </td>
+   <td style="text-align:right;"> 1.38 </td>
+   <td style="text-align:right;"> 1.32 </td>
+   <td style="text-align:right;"> 1.45 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classNILFs </td>
+   <td style="text-align:right;"> 2.57 </td>
+   <td style="text-align:right;"> 2.44 </td>
+   <td style="text-align:right;"> 2.70 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
+
+### Survey design for overall Cox analyses with IPW
+
+It makes no difference that we subsetted the dataset by age above rather than within the svycoxph function because age subpopulations appear in all the clusters
+
+
+```r
+dat_sub_svy <- svydesign(ids = ~ psu,
+                         strata = ~ strata, 
+                         weights = ~ sw_f,
+                         nest=TRUE, 
+                         data=dat_sub_overall)
+
+mod <- svycoxph(Surv(time,dead)~class, design=subset(dat_sub_svy, !is.na(class) & !is.na(age) & !is.na(sex) & !is.na(year)))
+
+kable(cbind(tidy(mod, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], c(length(mod$residuals), NA, NA, NA)), 
+      col.names=c(" ", "HR", "Lower", "Upper", "N"), caption="Ref: capitalist", digits=2) %>%
+  kable_styling("striped")
+```
+
+```
+## Stratified 1 - level Cluster Sampling design (with replacement)
+## With (1919) clusters.
+## subset(dat_sub_svy, !is.na(class) & !is.na(age) & !is.na(sex) & 
+##     !is.na(year))
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: capitalist</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> classPBs </td>
+   <td style="text-align:right;"> 1.27 </td>
+   <td style="text-align:right;"> 1.19 </td>
+   <td style="text-align:right;"> 1.36 </td>
+   <td style="text-align:right;"> 846227 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classManagers </td>
+   <td style="text-align:right;"> 0.98 </td>
+   <td style="text-align:right;"> 0.92 </td>
+   <td style="text-align:right;"> 1.04 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classWorkers </td>
+   <td style="text-align:right;"> 1.31 </td>
+   <td style="text-align:right;"> 1.23 </td>
+   <td style="text-align:right;"> 1.39 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classNILFs </td>
+   <td style="text-align:right;"> 2.65 </td>
+   <td style="text-align:right;"> 2.49 </td>
+   <td style="text-align:right;"> 2.82 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
+
+### Class by year interaction with regression adjustment instead of period stratification
+
+
+```r
+mod_1986 <- coxph(Surv(time,dead)~class*I(year - 1986) + rcs(age, 3) + sex, robust=T, w=mortwt_f, data=dat_sub_overall)
+mod_2014 <- coxph(Surv(time,dead)~class*I(year - 2014) + rcs(age, 3) + sex, robust=T, w=mortwt_f, data=dat_sub_overall)
+
+kable(cbind(tidy(mod_1986, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], 
+            tidy(mod_2014, exponentiate=T, conf.int=T)[1:4, c(2,7,8)],
+            c(length(mod_1986$residuals), NA, NA, NA)),
+            col.names=c(" ", "HR", "Lower", "Upper", "HR", "Lower", "Upper", "N"),
+      caption="Ref: capitalist in given year",
+      digits=2) %>%
+  kable_styling("striped") %>%
+  add_header_above(c(" ", "HR in 1986"=3, "HR in 2014"=3, " "))
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: capitalist in given year</caption>
+ <thead>
+<tr>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">HR in 1986</div></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">HR in 2014</div></th>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+</tr>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> classPBs </td>
+   <td style="text-align:right;"> 1.24 </td>
+   <td style="text-align:right;"> 1.15 </td>
+   <td style="text-align:right;"> 1.34 </td>
+   <td style="text-align:right;"> 1.47 </td>
+   <td style="text-align:right;"> 1.12 </td>
+   <td style="text-align:right;"> 1.92 </td>
+   <td style="text-align:right;"> 846227 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classManagers </td>
+   <td style="text-align:right;"> 1.00 </td>
+   <td style="text-align:right;"> 0.93 </td>
+   <td style="text-align:right;"> 1.08 </td>
+   <td style="text-align:right;"> 1.01 </td>
+   <td style="text-align:right;"> 0.77 </td>
+   <td style="text-align:right;"> 1.32 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classWorkers </td>
+   <td style="text-align:right;"> 1.28 </td>
+   <td style="text-align:right;"> 1.20 </td>
+   <td style="text-align:right;"> 1.37 </td>
+   <td style="text-align:right;"> 1.71 </td>
+   <td style="text-align:right;"> 1.35 </td>
+   <td style="text-align:right;"> 2.17 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classNILFs </td>
+   <td style="text-align:right;"> 2.03 </td>
+   <td style="text-align:right;"> 1.89 </td>
+   <td style="text-align:right;"> 2.17 </td>
+   <td style="text-align:right;"> 4.55 </td>
+   <td style="text-align:right;"> 3.58 </td>
+   <td style="text-align:right;"> 5.78 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
