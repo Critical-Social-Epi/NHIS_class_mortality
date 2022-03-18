@@ -18,25 +18,25 @@ always_allow_html: true
 * Coding of classes:
   + Capitalists are those who are self-employed in an incorporated business
   + The petite bourgeoisie (PBs) are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few people in the latter)
-  + Managers are those who are not self-employed but who are employed and who have an occupation of "officials and administrators, public administration", "managers and administrators, except public administration", or "management related occupations" 
-  + Workers are those who are unemployed/"not employed" OR who are employed but do not have a management occupation
+  + Managers are those who are not self-employed but who are employed and who have an "executive, administrative, or managerial" occupation
+  + Workers are those who are unemployed/"not employed" (few people) OR who are employed but do not have a management occupation
   + Not in the labor force (NILFs) are those who are "not in the labor force" 
-  + Numemps available (number of employees at work) only available from 2001-2014 - would be alternative way to classify classes but I think its categories are too imprecise and limited availability is problematic
-  + Can't identify "chief executives, general and operative managers, and legislators" until 2004 because of limited occupation data before then (can never identify "chief executives" alone)
-  + We could just call capitalists and PBs incorporated business owners and unincorporated business owners if we're worried that the measures are too imprecise
 <br>
 * To-do:
-  + Subdivide workers (and managers?) based on ONET or Krieger's method? Random options:
-    - (High-level) managers, supervisors and proefssionals, other workers
-    - "More-skilled" workers, less-skilled workers
-    - Look up what other people have done with occ1995 - don't think we can do what Krieger did exactly
-    - Could also try to based on Dorn, who has management-related occupations -https://www.ddorn.net/data/Dorn_Thesis_Appendix.pdf
+  + Decide whether we want to keep worker subdivision (white collar, service, blue-collar/farming, unemployed) as a secondary analysis or incorporate it into our primary analyses. Imprecision could become problematic.
+    - Based on: https://ajph.aphapublications.org/doi/pdfplus/10.2105/AJPH.2011.300173 and https://pubmed.ncbi.nlm.nih.gov/21671459/
+    - Could combine services, blue collar/farming, and unemployed, given similar survival probabilities among them
+  + Finish worker subdivision analyses (only plotting completed so far)
+  + Add geom_ribbon border
 <br>
 * General notes:
-    + Could just call them incorporated business owners/unincorporated business owners if we're worried the class measure is too imprecise (and say they're analogous to capitalists/PBs in the text)
+    + We could just call capitalists/PBs incorporated business owners/unincorporated business owners if we're worried the class measure is too imprecise (and say they're analogous to capitalists/PBs in the text)
+    + Numemps (number of employees at work) only available from 2001-2014 - would be alternative way to classify capitalists/PBs but I think its categories are too imprecise and limited availability is problematic
+    + Can't identify "chief executives, general and operative managers, and legislators" until 2004 because of limited occupation data before then (can never identify "chief executives" alone, who we've classified as capitalists in the past)
     + Originally was hoping to examine cause-specific mortality, but I'm not sure it makes sense as counts are small, detailed cause of death not available from 2005-on, and would need to handle competing events
     + I don't think it's worth doing MICE since there's very little missingness and it'd be incredibly computationally intensive given the size of the dataset
     + Tried subdividing POC into finer racialized groups but estimates were very imprecise, particularly among NH Black and Hispanic capitalists
+    + Useful citation regarding occupation and mortality in NHIS: https://www.sciencedirect.com/science/article/pii/S0091743520301535 and http://paa2019.populationassociation.org/uploads/190718
 <br>
 * Methods notes: 
     + When robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rather than frequency weights)
@@ -163,7 +163,16 @@ dat_sub %>%
                                                 ifelse((classwk>=20 & classwk<=34 & managers==1), "Mans",
                                                        ifelse(classwk==40 & jobsecincorp==2, "Caps",
                                                               ifelse((classwk==40 & jobsecincorp==1) | classwk==50, "PBs", NA)))))), 
-                          levels=c("Caps", "PBs", "Mans", "Wrks", "NILFs"))) -> dat_sub
+                          levels=c("Caps", "PBs", "Mans", "Wrks", "NILFs")),
+         class_occ=factor(ifelse(empstat==220, "NILFs",
+                                 ifelse(empstat>=200 & empstat<=214, "Unemps",
+                                        ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=900) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=900), "Blue collar/farm",
+                                               ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=600 & occ1995<900) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=600 & occ1995<900), "Services",
+                                                      ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=200 & occ1995<600) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=200 & occ1995<600), "White collar",
+                                                             ifelse((year<2001 & classwk>=20 & classwk<=34 & managers==1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers==1), "Mans",
+                                                                    ifelse((year<2001 & classwk==41) | (year>=2001 & classwk2==5 & jobsecincorp==2), "Caps",
+                                                                           ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "PBs", NA)))))))), 
+                     levels=c("Caps", "PBs", "Mans", "White collar", "Services", "Blue collar/farm", "Unemps", "NILFs"))) -> dat_sub
                                                                                      
 #exclude couple respondents with negative follow-up time
 dat_sub %>%
@@ -784,6 +793,60 @@ ggsave("race_survival.png", dpi=600, height=4, width=8.5)
 
 ```{r}
 tidy_n(rows=1:9, nad=8, captioned="Ref: white capitalist")
+```
+
+## Subdividing workers
+
+Other results TBD
+
+### Distribution of IPW
+
+Truncated at 0.5% and 99.5%.
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(!is.na(class_occ) & !is.na(age)) %>%
+  mutate(sw=ipwpoint(exposure=class_occ,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(year, 5), 
+                     data = subset(dat_sub_no_hisp, !is.na(class_occ) & !is.na(age)),
+                     weights=mortwt_f,
+                     trunc=0.005,
+                     trace=FALSE)$weights.trunc,
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_overall
+
+summary(dat_sub_no_hisp_overall$sw)
+```
+
+```{r warning=FALSE, message=FALSE}
+kapped <- survfit(Surv(time,dead)~class_occ, robust=T, w=sw_f, data=dat_sub_no_hisp_overall, se=T)
+```
+
+### IPW survival plot
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=6.5}
+survplot <- ggsurvplot(kapped,
+                       size=0.35,
+                       conf.int = T,
+                       ylim=c(0.50, 1.0),
+                       xlim=c(0, max(kapped$time)),
+                       axes.offset=F,
+                       censor=F)
+
+survplot$plot +
+  scale_color_manual(values=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) +
+  scale_fill_manual(values=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) +
+  geom_dl(aes(label=class_occ, group=strata, color=strata), method='last.qp') +
+  scale_x_continuous(expand=expansion(mult=c(0,0.25))) +
+  scale_y_continuous(limits=c(0.6, 1.0), expand=expansion(mult=c(0,0))) +
+  ylab("Probability of survival") +
+  xlab("Year") +
+  theme_light() +
+  theme(legend.position="none")
+
+ggsave("subdivided_workers_survival.png", dpi=600, height=4, width=6)
 ```
 
 ## Sensitivity analyses
