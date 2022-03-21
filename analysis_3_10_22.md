@@ -26,8 +26,6 @@ always_allow_html: true
   + Decide whether we want to keep worker subdivision (white collar, service, blue-collar/farming, unemployed) as a secondary analysis or incorporate it into our primary analyses. Imprecision could become problematic.
     - Based on: https://ajph.aphapublications.org/doi/pdfplus/10.2105/AJPH.2011.300173 and https://pubmed.ncbi.nlm.nih.gov/21671459/
     - Could combine services, blue collar/farming, and unemployed, given similar survival probabilities among them
-  + Finish worker subdivision analyses (only plotting completed so far)
-  + Add geom_ribbon border
 <br>
 * General notes:
     + We could just call capitalists/PBs incorporated business owners/unincorporated business owners if we're worried the class measure is too imprecise (and say they're analogous to capitalists/PBs in the text)
@@ -1331,6 +1329,52 @@ survdiffed_group <- function(datted=kapped, timed=30){
   
 }
 
+#survdiff function for worker subdivision
+survdiffed_sub <- function(datted=kapped, timed=30){
+  
+  #end of f/u
+  point <- summary(datted,times=timed)
+  
+  #pb-cap
+  pb <- 100*(point$surv[2] - point$surv[1])
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  
+  #mc-cap
+  mc <- 100*(point$surv[3] - point$surv[1])
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  
+  #whitecollar-cap
+  wc <- 100*(point$surv[4] - point$surv[1])
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  
+  #services-cap
+  servs <- 100*(point$surv[5] - point$surv[1])
+  servs_lower <- 100*(servs/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  servs_upper <- 100*(servs/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  
+  #bluecollar-cap
+  bc <- 100*(point$surv[6] - point$surv[1])
+  bc_lower <- 100*(bc/100 - 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  bc_upper <- 100*(bc/100 + 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  
+  #pb2-cap
+  unemp <- 100*(point$surv[7] - point$surv[1])
+  unemp_lower <- 100*(unemp/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  unemp_upper <- 100*(unemp/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  
+  #man2-cap
+  nilf <- 100*(point$surv[8] - point$surv[1])
+  nilf_lower <- 100*(nilf/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  nilf_upper <- 100*(nilf/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  
+  rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(servs, servs_lower, servs_upper),
+        c(bc, bc_lower, bc_upper), c(unemp, unemp_lower, unemp_upper), c(nilf, nilf_lower, nilf_upper))
+  
+}
+
 #tidying regression output function
 tidy_n <- function(modded=mod, rows=1:4, cols=c(1,2,7,8), bind=binded, nad=3, captioned="Ref: capitalist") {
   tidydf <- cbind(tidy(modded, exponentiate=T, conf.int=T)[rows, cols], bind)
@@ -2404,8 +2448,6 @@ tidy_n(rows=1:9, nad=8, captioned="Ref: white capitalist")
 
 ## Subdividing workers
 
-Other results TBD
-
 ### Distribution of IPW
 
 Truncated at 0.5% and 99.5%.
@@ -2423,9 +2465,9 @@ dat_sub_no_hisp %>%
                      weights=mortwt_f,
                      trunc=0.005,
                      trace=FALSE)$weights.trunc,
-         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_overall
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_class_occ
 
-summary(dat_sub_no_hisp_overall$sw)
+summary(dat_sub_no_hisp_class_occ$sw)
 ```
 
 ```
@@ -2435,7 +2477,9 @@ summary(dat_sub_no_hisp_overall$sw)
 
 
 ```r
-kapped <- survfit(Surv(time,dead)~class_occ, robust=T, w=sw_f, data=dat_sub_no_hisp_overall, se=T)
+kapped <- survfit(Surv(time,dead)~class_occ, robust=T, w=sw_f, data=dat_sub_no_hisp_class_occ, se=T)
+mod <- coxph(Surv(time,dead)~class_occ, robust=T, w=sw_f, data=dat_sub_no_hisp_class_occ)
+binded <- survdiffed_sub()
 ```
 
 ### IPW survival plot
@@ -2451,8 +2495,10 @@ survplot <- ggsurvplot(kapped,
                        censor=F)
 
 survplot$plot +
-  scale_color_manual(values=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) +
-  scale_fill_manual(values=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) +
+  scale_color_manual(values=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], 
+                              brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) +
+  scale_fill_manual(values=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], 
+                             brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) +
   geom_dl(aes(label=class_occ, group=strata, color=strata), method='last.qp') +
   scale_x_continuous(expand=expansion(mult=c(0,0.25))) +
   scale_y_continuous(limits=c(0.6, 1.0), expand=expansion(mult=c(0,0))) +
@@ -2467,6 +2513,107 @@ survplot$plot +
 ```r
 ggsave("subdivided_workers_survival.png", dpi=600, height=4, width=6)
 ```
+
+### IPW survival difference and hazard ratio
+
+
+```r
+tidy_n(rows=1:7, nad=6, captioned="Ref: capitalist")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: capitalist</caption>
+ <thead>
+<tr>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">HR</div></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">SD per 100 at end of f/u</div></th>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+</tr>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> SD </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> class_occPBs </td>
+   <td style="text-align:right;"> 1.26 </td>
+   <td style="text-align:right;"> 1.18 </td>
+   <td style="text-align:right;"> 1.34 </td>
+   <td style="text-align:right;"> -5.0 </td>
+   <td style="text-align:right;"> -6.6 </td>
+   <td style="text-align:right;"> -3.4 </td>
+   <td style="text-align:right;"> 847137 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_occMans </td>
+   <td style="text-align:right;"> 0.97 </td>
+   <td style="text-align:right;"> 0.91 </td>
+   <td style="text-align:right;"> 1.04 </td>
+   <td style="text-align:right;"> -0.5 </td>
+   <td style="text-align:right;"> -2.1 </td>
+   <td style="text-align:right;"> 1.0 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_occWhite collar </td>
+   <td style="text-align:right;"> 1.03 </td>
+   <td style="text-align:right;"> 0.97 </td>
+   <td style="text-align:right;"> 1.09 </td>
+   <td style="text-align:right;"> -1.4 </td>
+   <td style="text-align:right;"> -2.9 </td>
+   <td style="text-align:right;"> 0.0 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_occServices </td>
+   <td style="text-align:right;"> 1.61 </td>
+   <td style="text-align:right;"> 1.51 </td>
+   <td style="text-align:right;"> 1.72 </td>
+   <td style="text-align:right;"> -10.7 </td>
+   <td style="text-align:right;"> -12.4 </td>
+   <td style="text-align:right;"> -9.0 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_occBlue collar/farm </td>
+   <td style="text-align:right;"> 1.49 </td>
+   <td style="text-align:right;"> 1.39 </td>
+   <td style="text-align:right;"> 1.58 </td>
+   <td style="text-align:right;"> -8.6 </td>
+   <td style="text-align:right;"> -10.2 </td>
+   <td style="text-align:right;"> -7.0 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_occUnemps </td>
+   <td style="text-align:right;"> 1.76 </td>
+   <td style="text-align:right;"> 1.64 </td>
+   <td style="text-align:right;"> 1.88 </td>
+   <td style="text-align:right;"> -11.3 </td>
+   <td style="text-align:right;"> -13.2 </td>
+   <td style="text-align:right;"> -9.4 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> class_occNILFs </td>
+   <td style="text-align:right;"> 2.63 </td>
+   <td style="text-align:right;"> 2.47 </td>
+   <td style="text-align:right;"> 2.79 </td>
+   <td style="text-align:right;"> -17.9 </td>
+   <td style="text-align:right;"> -19.4 </td>
+   <td style="text-align:right;"> -16.4 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
 
 ## Sensitivity analyses
 
@@ -2567,30 +2714,30 @@ kable(cbind(tidy(mod, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], c(length(mod
 <tbody>
   <tr>
    <td style="text-align:left;"> classPBs </td>
-   <td style="text-align:right;"> 1.26 </td>
-   <td style="text-align:right;"> 1.17 </td>
-   <td style="text-align:right;"> 1.35 </td>
+   <td style="text-align:right;"> 1.27 </td>
+   <td style="text-align:right;"> 1.19 </td>
+   <td style="text-align:right;"> 1.36 </td>
    <td style="text-align:right;"> 847137 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMans </td>
-   <td style="text-align:right;"> 0.97 </td>
-   <td style="text-align:right;"> 0.91 </td>
-   <td style="text-align:right;"> 1.04 </td>
+   <td style="text-align:right;"> 0.98 </td>
+   <td style="text-align:right;"> 0.92 </td>
+   <td style="text-align:right;"> 1.05 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classWrks </td>
-   <td style="text-align:right;"> 1.28 </td>
-   <td style="text-align:right;"> 1.20 </td>
-   <td style="text-align:right;"> 1.36 </td>
+   <td style="text-align:right;"> 1.31 </td>
+   <td style="text-align:right;"> 1.23 </td>
+   <td style="text-align:right;"> 1.39 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNILFs </td>
-   <td style="text-align:right;"> 2.63 </td>
-   <td style="text-align:right;"> 2.47 </td>
-   <td style="text-align:right;"> 2.80 </td>
+   <td style="text-align:right;"> 2.65 </td>
+   <td style="text-align:right;"> 2.49 </td>
+   <td style="text-align:right;"> 2.82 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
@@ -2635,42 +2782,42 @@ tidy_n()
 <tbody>
   <tr>
    <td style="text-align:left;"> classPBs </td>
-   <td style="text-align:right;"> 1.26 </td>
-   <td style="text-align:right;"> 1.18 </td>
-   <td style="text-align:right;"> 1.34 </td>
-   <td style="text-align:right;"> -5.0 </td>
-   <td style="text-align:right;"> -6.6 </td>
-   <td style="text-align:right;"> -3.4 </td>
+   <td style="text-align:right;"> 1.27 </td>
+   <td style="text-align:right;"> 1.19 </td>
+   <td style="text-align:right;"> 1.36 </td>
+   <td style="text-align:right;"> -5.2 </td>
+   <td style="text-align:right;"> -6.8 </td>
+   <td style="text-align:right;"> -3.6 </td>
    <td style="text-align:right;"> 847137 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMans </td>
-   <td style="text-align:right;"> 0.97 </td>
-   <td style="text-align:right;"> 0.91 </td>
-   <td style="text-align:right;"> 1.04 </td>
-   <td style="text-align:right;"> -0.5 </td>
-   <td style="text-align:right;"> -2.1 </td>
-   <td style="text-align:right;"> 1.0 </td>
+   <td style="text-align:right;"> 0.98 </td>
+   <td style="text-align:right;"> 0.92 </td>
+   <td style="text-align:right;"> 1.05 </td>
+   <td style="text-align:right;"> -0.8 </td>
+   <td style="text-align:right;"> -2.3 </td>
+   <td style="text-align:right;"> 0.8 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classWrks </td>
-   <td style="text-align:right;"> 1.28 </td>
-   <td style="text-align:right;"> 1.21 </td>
-   <td style="text-align:right;"> 1.36 </td>
-   <td style="text-align:right;"> -5.4 </td>
-   <td style="text-align:right;"> -6.8 </td>
-   <td style="text-align:right;"> -4.0 </td>
+   <td style="text-align:right;"> 1.31 </td>
+   <td style="text-align:right;"> 1.23 </td>
+   <td style="text-align:right;"> 1.39 </td>
+   <td style="text-align:right;"> -6.0 </td>
+   <td style="text-align:right;"> -7.4 </td>
+   <td style="text-align:right;"> -4.6 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNILFs </td>
-   <td style="text-align:right;"> 2.63 </td>
-   <td style="text-align:right;"> 2.47 </td>
-   <td style="text-align:right;"> 2.79 </td>
-   <td style="text-align:right;"> -17.9 </td>
+   <td style="text-align:right;"> 2.65 </td>
+   <td style="text-align:right;"> 2.49 </td>
+   <td style="text-align:right;"> 2.82 </td>
+   <td style="text-align:right;"> -18.0 </td>
    <td style="text-align:right;"> -19.4 </td>
-   <td style="text-align:right;"> -16.4 </td>
+   <td style="text-align:right;"> -16.5 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
