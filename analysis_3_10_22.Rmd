@@ -24,8 +24,8 @@ always_allow_html: true
 <br>
 * To-do:
   + Decide whether we want to keep worker subdivision (white collar, service, blue-collar/farming, unemployed) as a secondary analysis or incorporate it into our primary analyses. Imprecision could become problematic.
-    - Based on: https://ajph.aphapublications.org/doi/pdfplus/10.2105/AJPH.2011.300173 and https://pubmed.ncbi.nlm.nih.gov/21671459/
     - Could combine services, blue collar/farming, and unemployed, given similar survival probabilities among them
+    - Based on: https://ajph.aphapublications.org/doi/pdfplus/10.2105/AJPH.2011.300173 and https://pubmed.ncbi.nlm.nih.gov/21671459/
 <br>
 * General notes:
     + We could just call capitalists/PBs incorporated business owners/unincorporated business owners if we're worried the class measure is too imprecise (and say they're analogous to capitalists/PBs in the text)
@@ -62,6 +62,7 @@ library(ipw)
 library(directlabels)
 library(RColorBrewer)
 library(patchwork)
+library(cobalt)
 options(scipen=999)
 options(knitr.kable.NA = '')
 
@@ -98,7 +99,7 @@ dat_sub %>%
                                 ifelse(mortdodq==3, 273.75, 
                                        ifelse(mortdodq==4, 365, NA)))),
          time=ifelse(dead==0, 2016 - year, mortdody + (mortdodq/365) - year), #deaths were allowed to occur through the end of Dec 31 2015, i.e., 2016
-         dead_86_95_96=ifelse(year>1995, NA,
+         dead_86_95_96=ifelse(year>1995, NA, #time and death indicators for 1986-1995 panel
                               ifelse(year<=1995 & (is.na(mortdody) | mortdody>1996), 0,
                                     ifelse(year<=1995 & mortdody<=1996, 1, NA))),
          time_86_95_96=ifelse(year>1995, NA,
@@ -155,6 +156,18 @@ dat_sub %>%
                                                                                          ifelse(class=="NILFs" & poc=="POC", "POC NILFs", NA)))))))))),
                           levels=c("NH white caps", "NH white PBs", "NH white mans", "NH white wrks", "NH white NILFs",
                                    "POC caps", "POC PBs", "POC mans", "POC wrks", "POC NILFs")),
+         class_educ=factor(ifelse(class=="Wrks" & (educ=="<HS" | educ=="HS"), "\u2264HS wrks",
+                                 ifelse(class=="Wrks" & (educ=="Some college" | educ=="College+"), ">HS wrks",
+                                        ifelse(class=="Mans" & (educ=="<HS" | educ=="HS"), "\u2264HS mans",
+                                               ifelse(class=="Mans" & (educ=="Some college" | educ=="College+"), ">HS mans",
+                                                      ifelse(class=="PBs" & (educ=="<HS" | educ=="HS"), "\u2264HS PBs",
+                                                             ifelse(class=="PBs" & (educ=="Some college" | educ=="College+"), ">HS PBs",
+                                                                    ifelse(class=="Caps" & (educ=="<HS" | educ=="HS"), "\u2264HS caps",
+                                                                           ifelse(class=="Caps" & (educ=="Some college" | educ=="College+"), ">HS caps", 
+                                                                                  ifelse(class=="NILFs" & (educ=="<HS" | educ=="HS"), "\u2264HS NILFs", 
+                                                                                         ifelse(class=="NILFs" & (educ=="Some college" | educ=="College+"), ">HS NILFs", NA)))))))))),
+                          levels=c(">HS caps", ">HS PBs", ">HS mans", ">HS wrks", ">HS NILFs",
+                                   "\u2264HS caps", "\u2264HS PBs", "\u2264HS mans", "\u2264HS wrks", "\u2264HS NILFs")),
          class_sens=factor(ifelse(year<2001 | year>2003, NA, #identical to class variable
                                   ifelse(empstat==220, "NILFs",
                                          ifelse((empstat>=200 & empstat<=214) | (classwk>=20 & classwk<=34 & managers!=1), "Wrks",
@@ -206,15 +219,15 @@ kable(bind_rows(dat_age_na, dat_other_na), digits=2, col.names=c("Variable", "Pe
 
 # Descriptives
 
-Excluding missingness unless otherwise noted
+Weighted and excluding missingness unless otherwise noted
 
 ## Unweighted and stratified table one with missingness in variables of interest (aside from age and class)
 
 ```{r message=FALSE, warning=FALSE}
 #vars of interest
-vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'dead')
+vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'year', 'time', 'dead')
 catvars <- c("sex", 'dead')
-nonorm <- c('age')
+nonorm <- c('age', 'year', 'time')
 
 x <- CreateTableOne(data = dat_sub_no_hisp, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, test=FALSE)
@@ -222,7 +235,7 @@ kable(x) %>%
   kable_styling(c("striped", "condensed"))
 ```
 
-## Weighted and stratified table one 
+## Stratified table one 
 
 ```{r message=FALSE, warning=FALSE}
 dat_sub_no_hisp_svy <- svydesign(ids = ~ psu,
@@ -237,7 +250,7 @@ kable(x) %>%
   kable_styling(c("striped", "condensed"))
 ```
 
-## Weighted and stratified class composition of gender-races 
+## Stratified class composition of gender-races 
 
 ```{r message=FALSE, warning=FALSE}
 x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, !is.na(race_h)), vars='class', factorVars='class', strata='race_h_sex', includeNA=FALSE)
@@ -246,7 +259,7 @@ kable(x[2:7,]) %>%
   kable_styling(c("striped", "condensed"))
 ```
 
-## Weighted proportions in classes over time 
+## Proportions in classes over time 
 
 ```{r message=FALSE, warning=FALSE}
 dat_sub_no_hisp %>%
@@ -338,7 +351,7 @@ plotted <- function(datted=kapped, bottom=0.60){
     scale_x_continuous(expand=expansion(mult=c(0,0.09))) +
     scale_y_continuous(limits=c(bottom, 1.0), expand=expansion(mult=c(0,0))) +
     ylab("Probability of survival") +
-    xlab("Year") +
+    xlab("Follow-up time (years)") +
     theme_light() +
     theme(legend.position="none")
 
@@ -502,10 +515,30 @@ dat_sub_no_hisp %>%
                      denominator=~rcs(age, 3) + sex + rcs(year, 5), 
                      data = subset(dat_sub_no_hisp, !is.na(class) & !is.na(age)),
                      weights=mortwt_f,
-                     trace=FALSE)$ipw.weights,
+                     trace=FALSE,
+                     maxit=1000)$ipw.weights,
          sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_overall
 
 summary(dat_sub_no_hisp_overall$sw)
+```
+
+#### Covariate balance after weighting
+
+```{r warning=FALSE, message=FALSE, fig.height=5, fig.width=9}
+covs <- subset(dat_sub_no_hisp_overall, select=c('age', 'year', 'sex'))
+               
+love.plot(covs,
+          treat=dat_sub_no_hisp_overall$class, 
+          weights=dat_sub_no_hisp_overall$sw, 
+          threshold=c(m=0.1), 
+          binary='std',
+          which=.all) +
+  facet_wrap(~treat, nrow=2) +
+  scale_color_manual(values=c("#77AADD", "#114477")) +
+  theme_light() +
+  theme(legend.title=element_blank(), plot.title=element_blank(), 
+        strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
+  scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
 ```
 
 ```{r warning=FALSE, message=FALSE}
@@ -545,10 +578,31 @@ dat_sub_no_hisp %>%
                      data = subset(dat_sub_no_hisp, !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)),
                      weights=mortwt_f,
                      trace=FALSE,
+                     maxit=1000,
                      trunc=0.005)$weights.trunc,
          sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_overall_adj
 
 summary(dat_sub_no_hisp_overall_adj$sw)
+```
+
+#### Covariate balance after weighting
+
+```{r warning=FALSE, message=FALSE, fig.height=8, fig.width=9.5}
+covs <- subset(dat_sub_no_hisp_overall_adj, select=c('age', 'year', 'sex', 'race_h', 'educ', 'marital_tri', 'region'))
+               
+love.plot(covs,
+          treat=dat_sub_no_hisp_overall_adj$class, 
+          weights=dat_sub_no_hisp_overall_adj$sw, 
+          threshold=c(m=0.1), 
+          binary='std',
+          which=.all) +
+  facet_wrap(~treat, nrow=2) +
+  scale_color_manual(values=c("#77AADD", "#114477")) +
+  theme_light() +
+  theme(legend.title=element_blank(), plot.title=element_blank(), 
+        strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
+  scale_y_discrete(labels=rev(c("Age", "Year", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
+                                "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
 ```{r warning=FALSE, message=FALSE}
@@ -571,7 +625,7 @@ ggsave("overall_survival_adj.png", dpi=600, height=4, width=6)
 tidy_n()
 ```
 
-## Change over time - 1986-1995 waves w/ f/u until end of 1996 vs 2005-2014 waves w/ f/u through end of 2015
+## Class-by-year stratification - 1986-1995 waves w/ f/u until end of 1996 vs 2005-2014 waves w/ f/u through end of 2015
 
 ### Less-adjusted
 
@@ -589,6 +643,7 @@ dat_sub_no_hisp %>%
                      denominator=~rcs(age, 3) + sex + rcs(year, 3), 
                      data = subset(dat_sub_no_hisp, year<=1995 & !is.na(class) & !is.na(age)),
                      weights=mortwt_f,
+                     maxit=1000,
                      trace=FALSE)$ipw.weights,
          sw_f=sw*mortwt_f,
          period="1986-1995 with follow-up through 1996")  -> dat_sub_no_hisp_1986
@@ -608,6 +663,7 @@ dat_sub_no_hisp %>%
                      denominator=~rcs(age, 3) + sex + rcs(year, 3), 
                      data = subset(dat_sub_no_hisp, year>=2005 & !is.na(class) & !is.na(age)),
                      weights=mortwt_f,
+                     maxit=1000,
                      trace=FALSE)$ipw.weights,
          sw_f=sw*mortwt_f,
          period="2005-2014 with follow-up through 2015")  -> dat_sub_no_hisp_2005
@@ -671,6 +727,7 @@ dat_sub_no_hisp %>%
                      data = subset(dat_sub_no_hisp, year<=1995 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)),
                      weights=mortwt_f,
                      trace=FALSE,
+                     maxit=1000,
                      trunc=0.005)$weights.trunc,
          sw_f=sw*mortwt_f,
          period="1986-1995 with follow-up through 1996")  -> dat_sub_no_hisp_1986
@@ -690,6 +747,7 @@ dat_sub_no_hisp %>%
                      denominator=~rcs(age, 3) + sex + rcs(year, 5) + educ + marital_tri + region + race_h, 
                      data = subset(dat_sub_no_hisp, year>=2005 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)),
                      trace=FALSE,
+                     maxit=1000,
                      trunc=0.005)$weights.trunc,
          sw_f=sw*mortwt_f,
          period="2005-2014 with follow-up through 2015")  -> dat_sub_no_hisp_2005
@@ -748,6 +806,7 @@ dat_sub_no_hisp %>%
                      denominator=~rcs(age, 3) + rcs(year, 3), 
                      data = subset(dat_sub_no_hisp, !is.na(class_gender) & !is.na(age)),
                      weights=mortwt_f,
+                     maxit=1000,
                      trace=FALSE)$ipw.weights,
          sw_f=sw*mortwt_f,
          gender=ifelse(sex=="female", "Women", "Men"))  -> dat_sub_no_hisp_gender
@@ -801,6 +860,7 @@ dat_sub_no_hisp %>%
                      denominator=~rcs(age, 3) + rcs(year, 3), 
                      data = subset(dat_sub_no_hisp, !is.na(class_poc) & !is.na(age)),
                      weights=mortwt_f,
+                     maxit=1000,
                      trace=FALSE)$ipw.weights,
          sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_race
 
@@ -839,6 +899,142 @@ ggsave("race_survival.png", dpi=600, height=4, width=8.5)
 tidy_n(rows=1:9, nad=8, captioned="Ref: white capitalist")
 ```
 
+## Class-by-education interaction
+
+### Distribution of IPW
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(!is.na(class_educ) & !is.na(age)) %>%
+  mutate(less_educ=ifelse(educ=="<HS" | educ=="HS", "HS or less", "Some college or more"),
+         sw=ipwpoint(exposure=class_educ,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + rcs(year, 3), 
+                     data = subset(dat_sub_no_hisp, !is.na(class_educ) & !is.na(age)),
+                     weights=mortwt_f,
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_educ
+
+summary(dat_sub_no_hisp_educ$sw)
+```
+
+```{r warning=FALSE, message=FALSE}
+#easier for plotting purposes to make separate fits for each racialized group
+kapped <- survfit(Surv(time,dead)~class_educ, robust=T, w=sw_f, data=dat_sub_no_hisp_educ, se=T)
+kapped_less <- survfit(Surv(time,dead)~class + less_educ, robust=T, w=sw_f, data=subset(dat_sub_no_hisp_educ, less_educ=="HS or less"), se=T) 
+kapped_more <- survfit(Surv(time,dead)~class + less_educ, robust=T, w=sw_f, data=subset(dat_sub_no_hisp_educ, less_educ=="Some college or more"), se=T)
+
+mod <- coxph(Surv(time,dead)~class_educ, robust=T, w=sw_f, data=dat_sub_no_hisp_educ)
+binded <- survdiffed_group()
+```
+
+### IPW survival plot
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.5}
+plotted(kapped_less) +  
+  facet_wrap(~less_educ) + 
+  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
+plotted(kapped_more) +  
+  facet_wrap(~less_educ) + 
+  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"),
+        axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+
+ggsave("educ_survival.png", dpi=600, height=4, width=8.5)
+```
+
+### IPW survival difference and hazard ratio
+
+```{r}
+tidy_n(rows=1:9, nad=8, captioned="Ref: >HS capitalists")
+```
+
+## Class-by-age stratification - 25-44 vs 45-64 years old
+
+### Distribution of IPW
+
+#### 25-44
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(age<45 & !is.na(class) & !is.na(age)) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(year, 3), 
+                     data = subset(dat_sub_no_hisp, age<45 & !is.na(class) & !is.na(age)),
+                     weights=mortwt_f,
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f,
+         age_cat="25-44")  -> dat_sub_no_hisp_young
+
+summary(dat_sub_no_hisp_young$sw)
+```
+
+#### 45-64
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(age>=45 & !is.na(class) & !is.na(age)) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(year, 3), 
+                     data = subset(dat_sub_no_hisp, age>=45 & !is.na(class) & !is.na(age)),
+                     weights=mortwt_f,
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f,
+         age_cat="45-64")  -> dat_sub_no_hisp_old
+
+summary(dat_sub_no_hisp_old$sw)
+```
+
+```{r warning=FALSE, message=FALSE}
+#young
+kapped_young <- survfit(Surv(time,dead)~class + age_cat, robust=T, w=sw_f, data=dat_sub_no_hisp_young, se=T) #age allows for faceting but doesnt affect ests
+mod_young <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_young)
+binded_young <- survdiffed(kapped_young)
+
+#old
+kapped_old <- survfit(Surv(time,dead)~class + age_cat, robust=T, w=sw_f, data=dat_sub_no_hisp_old, se=T)
+mod_old <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_old)
+binded_old <- survdiffed(kapped_old)
+```
+
+### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.5}
+plotted(kapped_young) +  
+  facet_wrap(~age_cat) + 
+  scale_y_continuous(limits=c(0.35, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
+plotted(kapped_old) +  
+  facet_wrap(~age_cat) + 
+  scale_y_continuous(limits=c(0.35, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"),
+        axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+
+ggsave("age_survival.png", dpi=600, height=4, width=8.5)
+```
+
+### IPW survival difference and hazard ratio
+
+```{r}
+tidy_n(modded=mod_young, bind=binded_young, captioned="Ref: capitalists (25-44 subset)")
+tidy_n(modded=mod_old, bind=binded_old, captioned="Ref: capitalists (45-64 subset)")
+```
+
+
 ## Subdividing workers
 
 ### Distribution of IPW
@@ -856,6 +1052,7 @@ dat_sub_no_hisp %>%
                      data = subset(dat_sub_no_hisp, !is.na(class_occ) & !is.na(age)),
                      weights=mortwt_f,
                      trunc=0.005,
+                     maxit=1000,
                      trace=FALSE)$weights.trunc,
          sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_class_occ
 
@@ -888,7 +1085,7 @@ survplot$plot +
   scale_x_continuous(expand=expansion(mult=c(0,0.25))) +
   scale_y_continuous(limits=c(0.6, 1.0), expand=expansion(mult=c(0,0))) +
   ylab("Probability of survival") +
-  xlab("Year") +
+  xlab("Follow-up time (years)") +
   theme_light() +
   theme(legend.position="none")
 
@@ -965,6 +1162,7 @@ dat_sub %>%
                      denominator=~rcs(age, 3) + sex + rcs(year, 5), 
                      data = subset(dat_sub, !is.na(class) & !is.na(age)),
                      weights=mortwt_f,
+                     maxit=1000,
                      trace=FALSE)$ipw.weights,
          sw_f=sw*mortwt_f)  -> dat_sub_hisp_overall
 
@@ -1010,7 +1208,7 @@ mod_1986 <- coxph(Surv(time,dead)~class*I(year - 1986) + rcs(age, 3) + sex + edu
 mod_2014 <- coxph(Surv(time,dead)~class*I(year - 2014) + rcs(age, 3) + sex + educ + marital_tri + region + race_h, robust=T, w=mortwt_f, data=dat_sub_no_hisp_overall)
 
 kable(cbind(tidy(mod_1986, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], 
-            tidy(mod_2014, exponentiate=T, conf.int=T)[1:4, c(2,7,8)],-
+            tidy(mod_2014, exponentiate=T, conf.int=T)[1:4, c(2,7,8)],
             c(length(mod_1986$residuals), NA, NA, NA)),
             col.names=c(" ", "HR", "Lower", "Upper", "HR", "Lower", "Upper", "N"),
       caption="Ref: capitalist in given year",
@@ -1043,6 +1241,7 @@ dat_sub_no_hisp_2005_ceo %>%
                      denominator=~rcs(age, 3) + sex + rcs(year, 3), 
                      data = subset(dat_sub_no_hisp_2005_ceo, !is.na(class_ceo) & !is.na(age)),
                      weights=mortwt_f,
+                     maxit=1000,
                      trace=FALSE)$ipw.weights,
          sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_2005_ceo
 
@@ -1055,7 +1254,7 @@ mod <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2005_
 binded <- survdiffed(timed=11)
 ```
 
-### IPW survival difference and hazard ratio
+#### IPW survival difference and hazard ratio
 
 ```{r}
 tidy_n()
