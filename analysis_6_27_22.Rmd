@@ -13,7 +13,7 @@ always_allow_html: true
 ---
 
 * Overview: 
-  + Descriptive analyses of class and mortality in the cross-sectional 1986-2014 NHIS with mortality follow-up through the end of 2015. Survival curves and Cox models are minimally adjusted (age, gender, and year) using IPW unless otherwise noted.
+  + Descriptive analyses of class and mortality in the cross-sectional 1986-2018 NHIS with mortality follow-up through the end of 2019. Survival curves and Cox models are minimally adjusted (age, gender, and year) using IPW unless otherwise noted.
 <br>
 * Coding of classes:
   + Capitalists are those who are self-employed in an incorporated business
@@ -23,17 +23,12 @@ always_allow_html: true
   + Not in the labor force (NILFs) are those who are "not in the labor force" 
 <br>
 * To-do:
-  + Decide whether we want to keep worker subdivision (white collar, service, blue-collar/farming, unemployed) as a secondary analysis or incorporate it into our primary analyses. Imprecision could become problematic.
-    - Could combine services, blue collar/farming, and unemployed, given similar survival probabilities among them
-    - Based on: https://ajph.aphapublications.org/doi/pdfplus/10.2105/AJPH.2011.300173 and https://pubmed.ncbi.nlm.nih.gov/21671459/
+  + Rename capitalists/PBs incorp/unincorp business owners
 <br>
 * General notes:
-    + We could just call capitalists/PBs incorporated business owners/unincorporated business owners if we're worried the class measure is too imprecise (and say they're analogous to capitalists/PBs in the text)
-    + Numemps (number of employees at work) only available from 2001-2014 - would be alternative way to classify capitalists/PBs but I think its categories are too imprecise and limited availability is problematic
+    + Too few respondents in minoritized racial/ethnic groups who are capitalists to break out POC into finer racialized subgroups (survival plots very unstable)
+    + Numemps (number of employees at work) only available from 2001-2018 - would be alternative way to classify capitalists/PBs but I think its categories are too imprecise and limited availability is problematic
     + Can't identify "chief executives, general and operative managers, and legislators" until 2004 because of limited occupation data before then (can never identify "chief executives" alone, who we've classified as capitalists in the past)
-    + Originally was hoping to examine cause-specific mortality, but I'm not sure it makes sense as counts are small, detailed cause of death not available from 2005-on, and would need to handle competing events
-    + I don't think it's worth doing MICE since there's very little missingness and it'd be incredibly computationally intensive given the size of the dataset
-    + Tried subdividing POC into finer racialized groups but estimates were very imprecise, particularly among NH Black and Hispanic capitalists
     + Useful citation regarding occupation and mortality in NHIS: https://www.sciencedirect.com/science/article/pii/S0091743520301535 and http://paa2019.populationassociation.org/uploads/190718
 <br>
 * Methods notes: 
@@ -66,45 +61,57 @@ library(cobalt)
 options(scipen=999)
 options(knitr.kable.NA = '')
 
-#load dat
-dat <- fread(here('nhis_1986_2014.csv'))
+#####manage ipums dat
+#load ipums dat
+dat_ipums <- fread(here('ipums_dat_1986_2018.csv'))
 
-#make all variable names lowercase
-dat %>%
-  rename_all(tolower) -> dat
+#make all variable names lowercase, fix merging id, and remove mortality variables
+dat_ipums %>%
+  rename_all(tolower) %>%
+  mutate(nhispid=as.numeric(nhispid)) %>%
+  dplyr::select(-c(mortelig, mortstat, mortdodq, mortdody, mortucod, mortucodld, mortdiab, morthipfx, morthypr, mortcms, mortndi)) -> dat_ipums
+
+#####manage mort dat
+dat_nchs <- fread(here('mort_dat_1986_2018_2019.csv'))
+
+#make merging id
+dat_nchs %>%
+  mutate(nhispid=as.numeric(ifelse(year<1997, paste(19, publicid, sep=""), paste(year, substring(publicid, 5), sep="")))) -> dat_nchs
+
+######merge
+#from 2015-2018, only sample adult and sample child participants were eligible for mortality follow-up
+merged <- merge(dat_ipums, dat_nchs, by=c("nhispid", "year"), all=T)
 
 #exclude those outside age ranges (age has 0.09% missing)
 #exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time)
 #exclude 1997-2000, when there's no data on whether business is incorporated or not
-#exclude 2015-on, when there's no mortality data
 #we'll exclude 1992 Hispanic oversample (only 3517 additional respondents) (per advice of IPUMS) separately, as we want to include them in sensitivity analyses
-dat %>%
-  filter((age>=25 & age<65) & mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000 & year<2015))) -> dat_sub
+merged %>%
+  filter((age>=25 & age<65) & eligstat==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000))) -> dat_sub
 
 #make variables
 dat_sub %>%
-  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata, nhispid, nhishid))),
+  mutate_at(.vars=(vars(-c(ucod_leading, mortwt, mortwtsa, psu, strata, nhispid, nhishid))),
             ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 997, 999, 7777, 8888, 9999), NA, .)) %>%
   mutate(classwk2=ifelse(classwk2 %in% (7:9), NA, classwk2), #these are real values in some other variables so we'll reset them here
          jobsecincorp=ifelse(jobsecincorp %in% (7:9), NA, jobsecincorp),
          racesr=ifelse(racesr==900, NA, racesr),
          lamtwrk=ifelse(lamtwrk %in% 7:9, NA, lamtwrk)) %>%
   mutate(hispanic_oversample=ifelse((year==1992 & substr(nhispid, 1, 4)==1991), 1, 0),
-         year_1986=year-1986, #center year at beginning and end of follow-up
-         year_2014=year-2014,
-         mortwt_f=ifelse(year<=1996, mortwt, mortwtsa), #per advice of IPUMS help desk, use mortwt from 1986-1996 and mortwtsa from 1997-on
+         mortwt_f=ifelse(year==1986, mortwt, #per NCHS advice, use basic weight in 1986 (IPUMS), person mort weights 1987-1996 (NCHS), then sample adult mort weights 1997-2018 (NCHS)
+                         ifelse(year>1986 & year<=1996, wgt_new, sa_wgt_new)), #https://www.cdc.gov/nchs/data/datalinkage/2019NDI-Linkage-Methods-and-Analytic-Considerations-508.pdf
          dead=ifelse(mortstat==1, 1, 0),
-         mortdodq=ifelse(mortdodq==1, 91.25, #assume deaths occurred at the end of the quarter
-                         ifelse(mortdodq==2, 182.5,
-                                ifelse(mortdodq==3, 273.75, 
-                                       ifelse(mortdodq==4, 365, NA)))),
-         time=ifelse(dead==0, 2016 - year, mortdody + (mortdodq/365) - year), #deaths were allowed to occur through the end of Dec 31 2015, i.e., 2016
-         dead_86_95_96=ifelse(year>1995, NA, #time and death indicators for 1986-1995 panel
-                              ifelse(year<=1995 & (is.na(mortdody) | mortdody>1996), 0,
-                                    ifelse(year<=1995 & mortdody<=1996, 1, NA))),
-         time_86_95_96=ifelse(year>1995, NA,
-                              ifelse(dead_86_95_96==1, mortdody + (mortdodq/365) - year,
-                                     ifelse(dead_86_95_96==0, 1997-year, NA))),
+         dodqtr=ifelse(dodqtr==1, 91.25, #assume deaths occurred at the end of the quarter
+                         ifelse(dodqtr==2, 182.5,
+                                ifelse(dodqtr==3, 273.75, 
+                                       ifelse(dodqtr==4, 365, NA)))),
+         time=ifelse(dead==0, 2020 - year, dodyear + (dodqtr/365) - year), #deaths were allowed to occur through the end of Dec 31 2019, i.e., 2020
+         dead_86_96_05=ifelse(year>1996, NA, #time and death indicators for 1986-1996 panel
+                              ifelse(year<=1996 & (is.na(dodyear) | dodyear>2004), 0,
+                                    ifelse(year<=1996 & dodyear<=2004, 1, NA))),
+         time_86_96_05=ifelse(year>1996, NA,
+                              ifelse(dead_86_96_05==1, dodyear + (dodqtr/365) - year,
+                                     ifelse(dead_86_96_05==0, 2005-year, NA))),
          race=ifelse(racesr==100, "White", 
                      ifelse(racesr==200, "Black", "Other")),
          hispeth_bin=ifelse(hispeth!=10, 1, 0),
@@ -156,6 +163,30 @@ dat_sub %>%
                                                                                          ifelse(class=="NILFs" & poc=="POC", "POC NILFs", NA)))))))))),
                           levels=c("NH white caps", "NH white PBs", "NH white mans", "NH white wrks", "NH white NILFs",
                                    "POC caps", "POC PBs", "POC mans", "POC wrks", "POC NILFs")),
+         class_race=factor(ifelse(class=="Wrks" & race_h=="NH white", "NH white wrks",
+                                 ifelse(class=="Wrks" & race_h=="NH black", "NH black wrks",
+                                        ifelse(class=="Wrks" & race_h=="NH other", "NH other wrks",
+                                               ifelse(class=="Wrks" & race_h=="Hispanic", "Hispanic wrks",
+                                                      ifelse(class=="Mans" & race_h=="NH white", "NH white mans",
+                                                             ifelse(class=="Mans" & race_h=="NH black", "NH black mans",
+                                                                    ifelse(class=="Mans" & race_h=="NH other", "NH other mans",
+                                                                           ifelse(class=="Mans" & race_h=="Hispanic", "Hispanic mans",
+                                                                                  ifelse(class=="PBs" & race_h=="NH white", "NH white PBs",
+                                                                                         ifelse(class=="PBs" & race_h=="NH black", "NH black PBs",
+                                                                                                ifelse(class=="PBs" & race_h=="NH other", "NH other PBs",
+                                                                                                      ifelse(class=="PBs" & race_h=="Hispanic", "Hispanic PBs",
+                                                                                                             ifelse(class=="Caps" & race_h=="NH white", "NH white caps",
+                                                                                                                    ifelse(class=="Caps" & race_h=="NH black", "NH black caps",
+                                                                                                                           ifelse(class=="Caps" & race_h=="NH other", "NH other caps",
+                                                                                                                                  ifelse(class=="Caps" & race_h=="Hispanic", "Hispanic caps",
+                                                                                                                                         ifelse(class=="NILFs" & race_h=="NH white", "NH white NILFs",
+                                                                                                                                                ifelse(class=="NILFs" & race_h=="NH black", "NH black NILFs",
+                                                                                                                                                       ifelse(class=="NILFs" & race_h=="NH other", "NH other NILFs",
+                                                                                                                                                              ifelse(class=="NILFs" & race_h=="Hispanic", "Hispanic NILFs", NA)))))))))))))))))))),
+                           levels=c("NH white caps", "NH white PBs", "NH white mans", "NH white wrks", "NH white NILFs",
+                                    "NH black caps", "NH black PBs", "NH black mans", "NH black wrks", "NH black NILFs",
+                                    "Hispanic caps", "Hispanic PBs", "Hispanic mans", "Hispanic wrks", "Hispanic NILFs",
+                                    "NH other caps", "NH other PBs", "NH other mans", "NH other wrks", "NH other NILFs")),
          class_educ=factor(ifelse(class=="Wrks" & (educ=="<HS" | educ=="HS"), "\u2264HS wrks",
                                  ifelse(class=="Wrks" & (educ=="Some college" | educ=="College+"), ">HS wrks",
                                         ifelse(class=="Mans" & (educ=="<HS" | educ=="HS"), "\u2264HS mans",
@@ -185,9 +216,9 @@ dat_sub %>%
                                                                            ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "PBs", NA)))))))), 
                      levels=c("Caps", "PBs", "Mans", "White collar", "Services", "Blue collar/farm", "Unemps", "NILFs"))) -> dat_sub
                                                                                      
-#exclude couple respondents with negative follow-up time
+#exclude respondent with negative follow-up time and those with missing weights
 dat_sub %>%
-  filter(time>=0) -> dat_sub
+  filter(time>=0 & !is.na(mortwt_f)) -> dat_sub
 
 #make dataset without hispanic oversample for main analyses
 dat_sub %>%
@@ -200,17 +231,17 @@ Age missingness is in full dataset among years and samples of interest; missingn
 
 ```{r message=FALSE, warning=FALSE}
 #age in full dataset
-dat %>%
-  filter(mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000 & year<2015)) & 
+merged %>%
+  filter(eligstat==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000)) & 
            !(year==1992 & substr(nhispid, 1, 4)==1991)) %>%
-  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata, nhispid, nhishid))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
+  mutate_at(.vars=(vars(-c(ucod_leading, mortwt, mortwtsa, psu, strata, nhispid, nhishid))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
   summarise_at(vars('age'), funs(na=100*sum(is.na(.)/1233802))) %>%
   mutate(name='age') %>% 
   relocate(na, .after=last_col()) -> dat_age_na
 
 #other vars in subsetted dataset
 dat_sub_no_hisp %>%
-  summarise_at(vars(c('class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')), funs(100*sum(is.na(.)/861724))) %>%
+  summarise_at(vars(c('class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')), funs(100*sum(is.na(.)/nrow(dat_sub_no_hisp)))) %>%
   tidyr::pivot_longer(class:region, values_to='na') -> dat_other_na
 
 kable(bind_rows(dat_age_na, dat_other_na), digits=2, col.names=c("Variable", "Percent missing")) %>%
@@ -274,7 +305,7 @@ ggplot(propped, aes(x=year, y=prop, group=class, color=class, label=class)) +
   geom_dl(method='last.qp') +
   geom_line() +
   scale_color_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,8,4,10,6)]) +
-  scale_x_continuous(expand=expansion(mult=c(0,0.08))) +
+  scale_x_continuous(breaks=c(1986, 1994, 2002, 2010, 2018), expand=expansion(mult=c(0,0.08))) +
   scale_y_continuous(limits=c(0, 0.63), expand=expansion(mult=c(0,0))) +
   xlab("Year") +
   ylab("Proportion") +
@@ -282,7 +313,7 @@ ggplot(propped, aes(x=year, y=prop, group=class, color=class, label=class)) +
   theme(legend.position = "none")
 ```
 
-## Family income distribution across classes from 2007-2014 
+## Family income distribution across classes from 2007-2018 
 
 Income coding inconsistent prior to 2007. Unadjusted for inflation. Row label shows lower bound of category.
 
@@ -294,9 +325,9 @@ kable(x[3:23,]) %>%
   kable_styling(c("striped", "condensed"))
 ```
 
-## Number of employees at work across classes from 2001-2014
+## Number of employees at work across classes from 2001-2018
 
-Excluding those not working. Capitalists 4.4x as likely as PBs to work in firms with 10+ employees. It probably makes sense that managers and workers are much more likely than capitalists to work in larger firms, since any given firm, regardless of size, will only have one capitalist (in theory), whereas such firms will have multiple workers. For example, in a society with 5 firms, 4 of which have 5 employees and 1 of which has 1000 employees, 80% of capitalists will come from firms with 5 employees, but 98% (1000/1020) of workers will come from firms with 1000+ employees.
+Excluding those not working. Capitalists 4x as likely as PBs to work in firms with 10+ employees. It probably makes sense that managers and workers are much more likely than capitalists to work in larger firms, since any given firm, regardless of size, will only have one capitalist (in theory), whereas such firms will have multiple workers. For example, in a society with 5 firms, 4 of which have 5 employees and 1 of which has 1000 employees, 80% of capitalists will come from firms with 5 employees, but 98% (1000/1020) of workers will come from firms with 1000+ employees.
 
 ```{r message=FALSE, warning=FALSE}
 x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=2001 & numemps!=0 & class!="NILFs"), vars='numemps', factorVars='numemps', strata='class', includeNA=FALSE)
@@ -335,7 +366,7 @@ kable(x[3:5,], col.names=c("Working for pay", "Working w/o pay", "With job, but 
 # Class and all-cause mortality
 
 ```{r}
-plotted <- function(datted=kapped, bottom=0.60){
+plotted <- function(datted=kapped, bottom=0.5){
   
   survplot <- ggsurvplot(datted,
                          size=0.35,
@@ -348,7 +379,7 @@ plotted <- function(datted=kapped, bottom=0.60){
     scale_color_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,8,4,10,6)]) +
     scale_fill_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,8,4,10,6)]) +
     geom_dl(aes(label=class, group=strata, color=strata), method='last.qp') +
-    scale_x_continuous(expand=expansion(mult=c(0,0.09))) +
+    scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.09))) +
     scale_y_continuous(limits=c(bottom, 1.0), expand=expansion(mult=c(0,0))) +
     ylab("Probability of survival") +
     xlab("Follow-up time (years)") +
@@ -358,7 +389,7 @@ plotted <- function(datted=kapped, bottom=0.60){
 }
 
 #survdiff function
-survdiffed <- function(datted=kapped, timed=30){
+survdiffed <- function(datted=kapped, timed=34){
   
   #end of f/u
   point <- summary(datted,times=timed)
@@ -625,87 +656,87 @@ ggsave("overall_survival_adj.png", dpi=600, height=4, width=6)
 tidy_n()
 ```
 
-## Class-by-year stratification - 1986-1995 waves w/ f/u until end of 1996 vs 2005-2014 waves w/ f/u through end of 2015
+## Class-by-year stratification - 1986-1996 waves w/ f/u through end of 2004 vs 2001-2018 waves w/ f/u through end of 2019
 
 ### Less-adjusted
 
 #### Distribution of IPW
 
-##### 1986-1995
+##### 1986-1996
 
 ```{r warning=FALSE, message=FALSE}
 dat_sub_no_hisp %>%
-  filter(year<=1995 & !is.na(class) & !is.na(age)) %>%
+  filter(year<=1996 & !is.na(class) & !is.na(age)) %>%
   mutate(sw=ipwpoint(exposure=class,
                      family="multinomial",
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(year, 3), 
-                     data = subset(dat_sub_no_hisp, year<=1995 & !is.na(class) & !is.na(age)),
+                     data = subset(dat_sub_no_hisp, year<=1996 & !is.na(class) & !is.na(age)),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
          sw_f=sw*mortwt_f,
-         period="1986-1995 with follow-up through 1996")  -> dat_sub_no_hisp_1986
+         period="1986-1996 with follow-up through 2004")  -> dat_sub_no_hisp_1986
 
 summary(dat_sub_no_hisp_1986$sw)
 ```
 
-##### 2005-2014
+##### 2001-2018
 
 ```{r warning=FALSE, message=FALSE}
 dat_sub_no_hisp %>%
-  filter(year>=2005 & !is.na(class) & !is.na(age)) %>%
+  filter(year>=2001 & !is.na(class) & !is.na(age)) %>%
   mutate(sw=ipwpoint(exposure=class,
                      family="multinomial",
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(year, 3), 
-                     data = subset(dat_sub_no_hisp, year>=2005 & !is.na(class) & !is.na(age)),
+                     data = subset(dat_sub_no_hisp, year>=2001 & !is.na(class) & !is.na(age)),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
          sw_f=sw*mortwt_f,
-         period="2005-2014 with follow-up through 2015")  -> dat_sub_no_hisp_2005
+         period="2001-2018 with follow-up through 2019")  -> dat_sub_no_hisp_2001
 
-summary(dat_sub_no_hisp_2005$sw)
+summary(dat_sub_no_hisp_2001$sw)
 ```
 
 ```{r warning=FALSE, message=FALSE}
 #early
-kapped_early <- survfit(Surv(time_86_95_96, dead_86_95_96)~class + period, robust=T, w=sw_f, data=dat_sub_no_hisp_1986, se=T) #period allows for faceting but doesnt affect ests
-mod_early <- coxph(Surv(time_86_95_96, dead_86_95_96)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_1986)
-binded_early <- survdiffed(kapped_early, timed=11)
+kapped_early <- survfit(Surv(time_86_96_05, dead_86_96_05)~class + period, robust=T, w=sw_f, data=dat_sub_no_hisp_1986, se=T) #period allows for faceting but doesnt affect ests
+mod_early <- coxph(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_1986)
+binded_early <- survdiffed(kapped_early, timed=19)
 
 #late
-kapped_late <- survfit(Surv(time,dead)~class + period, robust=T, w=sw_f, data=dat_sub_no_hisp_2005, se=T)
-mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2005)
-binded_late <- survdiffed(kapped_late, timed=11)
+kapped_late <- survfit(Surv(time,dead)~class + period, robust=T, w=sw_f, data=dat_sub_no_hisp_2001, se=T)
+mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2001)
+binded_late <- survdiffed(kapped_late, timed=19)
 ```
 
 #### IPW survival plots
 
-```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.5}
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
 plotted(kapped_early) +  
   facet_wrap(~period) + 
-  scale_y_continuous(limits=c(0.88, 1.0), breaks=c(0.88, 0.91, 0.94, 0.97, 1.0), expand=expansion(mult=c(0,0))) +
-  scale_x_continuous(limits=c(0, 11), breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.13))) +
+  scale_y_continuous(limits=c(0.75, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
 plotted(kapped_late) +  
   facet_wrap(~period) + 
-  scale_y_continuous(limits=c(0.88, 1.0), breaks=c(0.88, 0.91, 0.94, 0.97, 1.0), expand=expansion(mult=c(0,0))) +
-  scale_x_continuous(limits=c(0, 11), breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.13))) +
+  scale_y_continuous(limits=c(0.75, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"),
         axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 
-ggsave("change_over_time.png", dpi=600, height=4, width=8.5)
+ggsave("change_over_time.png", dpi=600, height=4, width=8.75)
 ```
 
 #### IPW survival difference and hazard ratio
 
 ```{r}
-tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-1995 subset)")
-tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2005-2014 subset)")
+tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-1996 subset)")
+tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2001-2018 subset)")
 ```
 
 ### More-adjusted
@@ -714,82 +745,82 @@ tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2005-2014
 
 Truncated at 0.5% and 99.5%.
 
-##### 1986-1995
+##### 1986-1996
 
 ```{r warning=FALSE, message=FALSE}
 dat_sub_no_hisp %>%
-  filter(year<=1995 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)) %>%
+  filter(year<=1996 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)) %>%
   mutate(sw=ipwpoint(exposure=class,
                      family="multinomial",
                      link="logit",
                      numerator=~1,
-                     denominator=~rcs(age, 3) + sex + rcs(year, 5) + educ + marital_tri + region + race_h, 
-                     data = subset(dat_sub_no_hisp, year<=1995 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)),
+                     denominator=~rcs(age, 3) + sex + rcs(year, 3) + educ + marital_tri + region + race_h, 
+                     data = subset(dat_sub_no_hisp, year<=1996 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)),
                      weights=mortwt_f,
                      trace=FALSE,
                      maxit=1000,
                      trunc=0.005)$weights.trunc,
          sw_f=sw*mortwt_f,
-         period="1986-1995 with follow-up through 1996")  -> dat_sub_no_hisp_1986
+         period="1986-1996 with follow-up through 2004")  -> dat_sub_no_hisp_1986
 
 summary(dat_sub_no_hisp_1986$sw)
 ```
 
-##### 2005-2014
+##### 2001-2018
 
 ```{r warning=FALSE, message=FALSE}
 dat_sub_no_hisp %>%
-  filter(year>=2005 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)) %>%
+  filter(year>=2001 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)) %>%
   mutate(sw=ipwpoint(exposure=class,
                      family="multinomial",
                      link="logit",
                      numerator=~1,
-                     denominator=~rcs(age, 3) + sex + rcs(year, 5) + educ + marital_tri + region + race_h, 
-                     data = subset(dat_sub_no_hisp, year>=2005 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)),
+                     denominator=~rcs(age, 3) + sex + rcs(year, 3) + educ + marital_tri + region + race_h, 
+                     data = subset(dat_sub_no_hisp, year>=2001 & !is.na(class) & !is.na(age) & !is.na(educ) & !is.na(marital_tri) & !is.na(region) & !is.na(race_h)),
                      trace=FALSE,
                      maxit=1000,
                      trunc=0.005)$weights.trunc,
          sw_f=sw*mortwt_f,
-         period="2005-2014 with follow-up through 2015")  -> dat_sub_no_hisp_2005
+         period="2001-2018 with follow-up through 2019")  -> dat_sub_no_hisp_2001
 
-summary(dat_sub_no_hisp_2005$sw)
+summary(dat_sub_no_hisp_2001$sw)
 ```
 
 ```{r warning=FALSE, message=FALSE}
 #early
-kapped_early <- survfit(Surv(time_86_95_96, dead_86_95_96)~class + period, robust=T, w=sw_f, data=dat_sub_no_hisp_1986, se=T) #period allows for faceting but doesnt affect ests
-mod_early <- coxph(Surv(time_86_95_96, dead_86_95_96)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_1986)
-binded_early <- survdiffed(kapped_early, timed=11)
+kapped_early <- survfit(Surv(time_86_96_05, dead_86_96_05)~class + period, robust=T, w=sw_f, data=dat_sub_no_hisp_1986, se=T) #period allows for faceting but doesnt affect ests
+mod_early <- coxph(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_1986)
+binded_early <- survdiffed(kapped_early, timed=19)
 
 #late
-kapped_late <- survfit(Surv(time,dead)~class + period, robust=T, w=sw_f, data=dat_sub_no_hisp_2005, se=T)
-mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2005)
-binded_late <- survdiffed(kapped_late, timed=11)
+kapped_late <- survfit(Surv(time,dead)~class + period, robust=T, w=sw_f, data=dat_sub_no_hisp_2001, se=T)
+mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2001)
+binded_late <- survdiffed(kapped_late, timed=19)
 ```
 
 #### IPW survival plots
 
-```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.5}
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
 plotted(kapped_early) +  
   facet_wrap(~period) + 
-  scale_y_continuous(limits=c(0.88, 1.0), breaks=c(0.88, 0.91, 0.94, 0.97, 1.0), expand=expansion(mult=c(0,0))) +
-  scale_x_continuous(limits=c(0, 11), breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.13))) +
+  scale_y_continuous(limits=c(0.75, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
 plotted(kapped_late) +  
   facet_wrap(~period) + 
-  scale_y_continuous(limits=c(0.88, 1.0), breaks=c(0.88, 0.91, 0.94, 0.97, 1.0), expand=expansion(mult=c(0,0))) +
-  scale_x_continuous(limits=c(0, 11), breaks=seq(1, 11, 1), expand=expansion(mult=c(0,0.13))) +
+  scale_y_continuous(limits=c(0.75, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"),
         axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 
-ggsave("change_over_time_adj.png", dpi=600, height=4, width=8.5)
+ggsave("change_over_time_adj.png", dpi=600, height=4, width=8.75)
 ```
 
 #### IPW survival difference and hazard ratio
 
 ```{r}
-tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-1995 subset)")
-tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2005-2014 subset)")
+tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: capitalists (1986-1996 subset)")
+tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: capitalists (2001-2018 subset)")
 ```
 
 ## Class-by-gender interaction
@@ -803,7 +834,7 @@ dat_sub_no_hisp %>%
                      family="multinomial",
                      link="logit",
                      numerator=~1,
-                     denominator=~rcs(age, 3) + rcs(year, 3), 
+                     denominator=~rcs(age, 3) + rcs(year, 5), 
                      data = subset(dat_sub_no_hisp, !is.na(class_gender) & !is.na(age)),
                      weights=mortwt_f,
                      maxit=1000,
@@ -826,18 +857,18 @@ binded <- survdiffed_group()
 
 ### IPW survival plot
 
-```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.5}
-plotted(kapped_men, bottom=0.5) +  
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted(kapped_men, bottom=0.4) +  
   facet_wrap(~gender) + 
-  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-plotted(kapped_women, bottom=0.5) +  
+plotted(kapped_women, bottom=0.4) +  
   facet_wrap(~gender) + 
-  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"),
         axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 
-ggsave("gender_survival.png", dpi=600, height=4, width=8.5)
+ggsave("gender_survival.png", dpi=600, height=4, width=8.75)
 ```
 
 ### IPW survival difference and hazard ratio
@@ -857,46 +888,46 @@ dat_sub_no_hisp %>%
                      family="multinomial",
                      link="logit",
                      numerator=~1,
-                     denominator=~rcs(age, 3) + rcs(year, 3), 
+                     denominator=~rcs(age, 3) + rcs(year, 5), 
                      data = subset(dat_sub_no_hisp, !is.na(class_poc) & !is.na(age)),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
-         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_race
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_race_poc
 
-summary(dat_sub_no_hisp_race$sw)
+summary(dat_sub_no_hisp_race_poc$sw)
 ```
 
 ```{r warning=FALSE, message=FALSE}
 #easier for plotting purposes to make separate fits for each racialized group
-kapped <- survfit(Surv(time,dead)~class_poc, robust=T, w=sw_f, data=dat_sub_no_hisp_race, se=T)
-kapped_white <- survfit(Surv(time,dead)~class + poc, robust=T, w=sw_f, data=subset(dat_sub_no_hisp_race, poc=="NH white"), se=T) 
-kapped_poc <- survfit(Surv(time,dead)~class + poc, robust=T, w=sw_f, data=subset(dat_sub_no_hisp_race,  poc=="POC"), se=T)
+kapped <- survfit(Surv(time,dead)~class_poc, robust=T, w=sw_f, data=dat_sub_no_hisp_race_poc, se=T)
+kapped_white <- survfit(Surv(time,dead)~class + poc, robust=T, w=sw_f, data=subset(dat_sub_no_hisp_race_poc, poc=="NH white"), se=T) 
+kapped_poc <- survfit(Surv(time,dead)~class + poc, robust=T, w=sw_f, data=subset(dat_sub_no_hisp_race_poc,  poc=="POC"), se=T)
 
-mod <- coxph(Surv(time,dead)~class_poc, robust=T, w=sw_f, data=dat_sub_no_hisp_race)
+mod <- coxph(Surv(time,dead)~class_poc, robust=T, w=sw_f, data=dat_sub_no_hisp_race_poc)
 binded <- survdiffed_group()
 ```
 
 ### IPW survival plot
 
-```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.5}
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
 plotted(kapped_white) +  
   facet_wrap(~poc) + 
-  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
 plotted(kapped_poc) +  
   facet_wrap(~poc) + 
-  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"),
         axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 
-ggsave("race_survival.png", dpi=600, height=4, width=8.5)
+ggsave("race_survival.png", dpi=600, height=4, width=8.75)
 ```
 
 ### IPW survival difference and hazard ratio
 
 ```{r}
-tidy_n(rows=1:9, nad=8, captioned="Ref: white capitalist")
+tidy_n(rows=1:9, nad=8, captioned="Ref: NH white capitalist")
 ```
 
 ## Class-by-education interaction
@@ -911,7 +942,7 @@ dat_sub_no_hisp %>%
                      family="multinomial",
                      link="logit",
                      numerator=~1,
-                     denominator=~rcs(age, 3) + rcs(year, 3), 
+                     denominator=~rcs(age, 3) + rcs(year, 5), 
                      data = subset(dat_sub_no_hisp, !is.na(class_educ) & !is.na(age)),
                      weights=mortwt_f,
                      maxit=1000,
@@ -933,18 +964,18 @@ binded <- survdiffed_group()
 
 ### IPW survival plot
 
-```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.5}
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
 plotted(kapped_less) +  
   facet_wrap(~less_educ) + 
-  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
 plotted(kapped_more) +  
   facet_wrap(~less_educ) + 
-  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"),
         axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 
-ggsave("educ_survival.png", dpi=600, height=4, width=8.5)
+ggsave("educ_survival.png", dpi=600, height=4, width=8.75)
 ```
 
 ### IPW survival difference and hazard ratio
@@ -966,7 +997,7 @@ dat_sub_no_hisp %>%
                      family="multinomial",
                      link="logit",
                      numerator=~1,
-                     denominator=~rcs(age, 3) + sex + rcs(year, 3), 
+                     denominator=~rcs(age, 3) + sex + rcs(year, 5), 
                      data = subset(dat_sub_no_hisp, age<45 & !is.na(class) & !is.na(age)),
                      weights=mortwt_f,
                      maxit=1000,
@@ -986,7 +1017,7 @@ dat_sub_no_hisp %>%
                      family="multinomial",
                      link="logit",
                      numerator=~1,
-                     denominator=~rcs(age, 3) + sex + rcs(year, 3), 
+                     denominator=~rcs(age, 3) + sex + rcs(year, 5), 
                      data = subset(dat_sub_no_hisp, age>=45 & !is.na(class) & !is.na(age)),
                      weights=mortwt_f,
                      maxit=1000,
@@ -1011,20 +1042,20 @@ binded_old <- survdiffed(kapped_old)
 
 ### IPW survival plots
 
-```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.5}
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
 plotted(kapped_young) +  
   facet_wrap(~age_cat) + 
-  scale_y_continuous(limits=c(0.35, 1.0), expand=expansion(mult=c(0,0))) +
-  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  scale_y_continuous(limits=c(0.2, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
 plotted(kapped_old) +  
   facet_wrap(~age_cat) + 
-  scale_y_continuous(limits=c(0.35, 1.0), expand=expansion(mult=c(0,0))) +
-  scale_x_continuous(expand=expansion(mult=c(0,0.13))) +
+  scale_y_continuous(limits=c(0.2, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.13))) +
   theme(panel.grid.minor.x = element_blank(), strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black"),
         axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 
-ggsave("age_survival.png", dpi=600, height=4, width=8.5)
+ggsave("age_survival.png", dpi=600, height=4, width=8.75)
 ```
 
 ### IPW survival difference and hazard ratio
@@ -1033,7 +1064,6 @@ ggsave("age_survival.png", dpi=600, height=4, width=8.5)
 tidy_n(modded=mod_young, bind=binded_young, captioned="Ref: capitalists (25-44 subset)")
 tidy_n(modded=mod_old, bind=binded_old, captioned="Ref: capitalists (45-64 subset)")
 ```
-
 
 ## Subdividing workers
 
@@ -1067,7 +1097,7 @@ binded <- survdiffed_sub()
 
 ### IPW survival plot
 
-```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=6.5}
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=6}
 survplot <- ggsurvplot(kapped,
                        size=0.35,
                        conf.int = T,
@@ -1082,8 +1112,8 @@ survplot$plot +
   scale_fill_manual(values=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], 
                              brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) +
   geom_dl(aes(label=class_occ, group=strata, color=strata), method='last.qp') +
-  scale_x_continuous(expand=expansion(mult=c(0,0.25))) +
-  scale_y_continuous(limits=c(0.6, 1.0), expand=expansion(mult=c(0,0))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.25))) +
+  scale_y_continuous(limits=c(0.5, 1.0), expand=expansion(mult=c(0,0))) +
   ylab("Probability of survival") +
   xlab("Follow-up time (years)") +
   theme_light() +
@@ -1189,37 +1219,37 @@ Similar to primary.
 
 ```{r warning=FALSE, message=FALSE}
 mod_1986 <- coxph(Surv(time,dead)~class*I(year - 1986) + rcs(age, 3) + sex, robust=T, w=mortwt_f, data=dat_sub_no_hisp_overall)
-mod_2014 <- coxph(Surv(time,dead)~class*I(year - 2014) + rcs(age, 3) + sex, robust=T, w=mortwt_f, data=dat_sub_no_hisp_overall)
+mod_2018 <- coxph(Surv(time,dead)~class*I(year - 2018) + rcs(age, 3) + sex, robust=T, w=mortwt_f, data=dat_sub_no_hisp_overall)
 
 kable(cbind(tidy(mod_1986, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], 
-            tidy(mod_2014, exponentiate=T, conf.int=T)[1:4, c(2,7,8)],
+            tidy(mod_2018, exponentiate=T, conf.int=T)[1:4, c(2,7,8)],
             c(length(mod_1986$residuals), NA, NA, NA)),
             col.names=c(" ", "HR", "Lower", "Upper", "HR", "Lower", "Upper", "N"),
       caption="Ref: capitalist in given year",
       digits=2) %>%
   kable_styling("striped") %>%
-  add_header_above(c(" ", "HR in 1986"=3, "HR in 2014"=3, " "))
+  add_header_above(c(" ", "HR in 1986"=3, "HR in 2018"=3, " "))
 ```
 
 #### More-adjusted
 
 ```{r warning=FALSE, message=FALSE}
 mod_1986 <- coxph(Surv(time,dead)~class*I(year - 1986) + rcs(age, 3) + sex + educ + marital_tri + region + race_h, robust=T, w=mortwt_f, data=dat_sub_no_hisp_overall)
-mod_2014 <- coxph(Surv(time,dead)~class*I(year - 2014) + rcs(age, 3) + sex + educ + marital_tri + region + race_h, robust=T, w=mortwt_f, data=dat_sub_no_hisp_overall)
+mod_2018 <- coxph(Surv(time,dead)~class*I(year - 2018) + rcs(age, 3) + sex + educ + marital_tri + region + race_h, robust=T, w=mortwt_f, data=dat_sub_no_hisp_overall)
 
 kable(cbind(tidy(mod_1986, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], 
-            tidy(mod_2014, exponentiate=T, conf.int=T)[1:4, c(2,7,8)],
+            tidy(mod_2018, exponentiate=T, conf.int=T)[1:4, c(2,7,8)],
             c(length(mod_1986$residuals), NA, NA, NA)),
             col.names=c(" ", "HR", "Lower", "Upper", "HR", "Lower", "Upper", "N"),
       caption="Ref: capitalist in given year",
       digits=2) %>%
   kable_styling("striped") %>%
-  add_header_above(c(" ", "HR in 1986"=3, "HR in 2014"=3, " "))
+  add_header_above(c(" ", "HR in 1986"=3, "HR in 2018"=3, " "))
 ```
 
-### Including employed "chief executives, general and operative managers, and legislators" in capitalist class rather than managerial class from 2005-2014
+### Including employed "chief executives, general and operative managers, and legislators" in capitalist class rather than managerial class from 2005-2018
 
-Results nearly identical to 2005-2014 analysis above.
+HR similar to 2001-2018 analysis above.
 
 ```{r warning=FALSE, message=FALSE}
 dat_sub_no_hisp %>%
@@ -1251,7 +1281,7 @@ summary(dat_sub_no_hisp_2005_ceo$sw)
 ```{r warning=FALSE, message=FALSE}
 kapped <- survfit(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2005_ceo, se=T)
 mod <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2005_ceo)
-binded <- survdiffed(timed=11)
+binded <- survdiffed(timed=15)
 ```
 
 #### IPW survival difference and hazard ratio
