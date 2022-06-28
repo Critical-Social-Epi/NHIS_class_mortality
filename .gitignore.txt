@@ -1,0 +1,11 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.tiff
+/references
+/papers
+/outlines
+/old
+nhis_1986_2014.csv
+.dat
