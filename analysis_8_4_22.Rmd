@@ -44,6 +44,7 @@ always_allow_html: true
   + Useful citation regarding occupation and mortality in NHIS: https://www.sciencedirect.com/science/article/pii/S0091743520301535 and http://paa2019.populationassociation.org/uploads/190718
 <br>
 * Methods notes: 
+  + Monitor release of update IPUMS linked datasets (expected August release date) and vintage-specific weights  (https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486/12)
   + When robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rather than frequency weights)
   + Citations for IPW and survey weighting approach: https://www.ncbi.nlm.nih.gov/labs/pmc/articles/PMC5802372/ and https://journals.sagepub.com/doi/full/10.1177/0193841X20938497
   
@@ -499,6 +500,53 @@ survdiffed <- function(datted,
   
 }
 
+#survdiff function for worker subdivision
+survdiffed_sub <- function(datted, 
+                           timed=34){
+  
+  #end of f/u
+  point <- summary(datted, times=timed)
+  
+  #pb-cap
+  pb <- 100*(point$surv[2] - point$surv[1])
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  
+  #mc-cap
+  mc <- 100*(point$surv[3] - point$surv[1])
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  
+  #whitecollar-cap
+  wc <- 100*(point$surv[4] - point$surv[1])
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  
+  #services-cap
+  servs <- 100*(point$surv[5] - point$surv[1])
+  servs_lower <- 100*(servs/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  servs_upper <- 100*(servs/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  
+  #bluecollar-cap
+  bc <- 100*(point$surv[6] - point$surv[1])
+  bc_lower <- 100*(bc/100 - 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  bc_upper <- 100*(bc/100 + 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  
+  #pb2-cap
+  unemp <- 100*(point$surv[7] - point$surv[1])
+  unemp_lower <- 100*(unemp/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  unemp_upper <- 100*(unemp/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  
+  #man2-cap
+  nilf <- 100*(point$surv[8] - point$surv[1])
+  nilf_lower <- 100*(nilf/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  nilf_upper <- 100*(nilf/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  
+  rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(servs, servs_lower, servs_upper),
+        c(bc, bc_lower, bc_upper), c(unemp, unemp_lower, unemp_upper), c(nilf, nilf_lower, nilf_upper))
+  
+}
+
 #survdiff function for groups
 survdiffed_group <- function(datted,
                              timed=34){
@@ -556,65 +604,93 @@ survdiffed_group <- function(datted,
   
 }
 
-#survdiff function for worker subdivision
-survdiffed_sub <- function(datted, 
-                           timed=34){
+#ests within groups
+within_group_ests <- function(datted, 
+                              timed=34, 
+                              modded, 
+                              term1, 
+                              captioned){
   
+  #######sdiffs
   #end of f/u
   point <- summary(datted, times=timed)
   
   #pb-cap
-  pb <- 100*(point$surv[2] - point$surv[1])
+  pb <- 100*(point$surv[7] - point$surv[6])
   pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
   pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
   
   #mc-cap
-  mc <- 100*(point$surv[3] - point$surv[1])
+  mc <- 100*(point$surv[8] - point$surv[6])
   mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
   mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
   
-  #whitecollar-cap
-  wc <- 100*(point$surv[4] - point$surv[1])
+  #worker-cap
+  wc <- 100*(point$surv[9] - point$surv[6])
   wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
   wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
   
-  #services-cap
-  servs <- 100*(point$surv[5] - point$surv[1])
-  servs_lower <- 100*(servs/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
-  servs_upper <- 100*(servs/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  #nilf-cap
+  nc <- 100*(point$surv[10] - point$surv[6])
+  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
   
-  #bluecollar-cap
-  bc <- 100*(point$surv[6] - point$surv[1])
-  bc_lower <- 100*(bc/100 - 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
-  bc_upper <- 100*(bc/100 + 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  sdiffs <- rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(nc, nc_lower, nc_upper))
   
-  #pb2-cap
-  unemp <- 100*(point$surv[7] - point$surv[1])
-  unemp_lower <- 100*(unemp/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
-  unemp_upper <- 100*(unemp/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  ######hrs
+  hzds <- rbind(exp(confint(glht(modded, linfct=paste0("`", term1, " UBOs` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
+                exp(confint(glht(modded, linfct=paste0("`", term1, " mans` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
+                exp(confint(glht(modded, linfct=paste0("`", term1, " wrks` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
+                exp(confint(glht(modded, linfct=paste0("`", term1, " NLFs` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]))
   
-  #man2-cap
-  nilf <- 100*(point$surv[8] - point$surv[1])
-  nilf_lower <- 100*(nilf/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
-  nilf_upper <- 100*(nilf/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  kable(data.frame(c("classUBOs", "classMans", "classWrks", "classNLFs"), hzds, sdiffs), digits=c(2,2,2,2,1,1,1), 
+        caption=captioned, col.names=c(" ", "HR", "Lower", "Upper", "SD", "Lower", "Upper")) %>%
+    kable_styling("striped") %>%
+    add_header_above(c(" ", "HR"=3, "SD per 100 at end of f/u"=3))
   
-  rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(servs, servs_lower, servs_upper),
-        c(bc, bc_lower, bc_upper), c(unemp, unemp_lower, unemp_upper), c(nilf, nilf_lower, nilf_upper))
+}
+
+#class-by-year interaction function
+int_year_func <- function(modded){
+  
+  ests <- data.frame(Class=c("classUBOs", "classUBOs", "classMans", "classMans", "classWrks", "classWrks", "classNLFs", "classNLFs"),
+                     Year=rep(c(1986, 2018),4),
+                     HR=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
+                              contrast(modded, list(class='Mans', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
+                              contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
+                              contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast)),
+                     Lower=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
+                                 contrast(modded, list(class='Mans', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
+                                 contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
+                                 contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower)),
+                     Upper=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
+                                 contrast(modded, list(class='Mans', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
+                                 contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
+                                 contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper)))
+  
+  chunked <- anova(modded, int_year_fin)[2,3]
+  
+  kable(cbind(ests[c(1,3,5,7),c(1,3:5)], ests[c(2,4,6,8),c(3:5)], data.frame(N=c(length(modded$residuals), rep(NA, 3))), data.frame(P=c(chunked, rep(NA, 3)))),
+        row.names=F, digits=c(2,2,2,2,2,2,2,2,20), caption="Ref: IBOs in given year") %>%
+    kable_styling("striped") %>%
+    add_header_above(c(" ", "1986"=3, "2018"=3, " ", " "))
   
 }
 
 #tidying regression output function
-tidy_n <- function(modded=mod, 
+tidy_n <- function(modded, 
                    rows=1:4, 
                    cols=c(1,2,7,8),
                    bind=binded,
                    nad=3, 
-                   captioned="Ref: IBOs") {
+                   captioned="Ref: IBOs"){
+  
   tidydf <- cbind(tidy(modded, exponentiate=T, conf.int=T)[rows, cols], bind)
   tidydf$N <- c(length(modded$residuals), rep(NA, nad))
   kable(tidydf, digits=c(2,2,2,2,1,1,1,1), caption=captioned, col.names=c(" ", "HR", "Lower", "Upper", "SD", "Lower", "Upper", "N")) %>%
     kable_styling("striped") %>%
     add_header_above(c(" ", "HR"=3, "SD per 100 at end of f/u"=3, " "))
+  
 }
 ```
 
@@ -714,7 +790,7 @@ mod_sub <- coxph(Surv(time,dead)~class_occ, robust=T, w=sw_f_sub, data=dat_sub_n
 binded_sub <- survdiffed_sub(datted=kapped_sub)
 ```
 
-##### IPW survival plot
+##### IPW survival plots
 
 ```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
 plotted(datted=kapped_over, 
@@ -736,7 +812,7 @@ plotted(datted=kapped_sub,
 ggsave("overall_subdivided.png", dpi=600, height=4, width=8.75)
 ```
 
-##### IPW survival difference and hazard ratio
+##### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_over, bind=binded_over)
@@ -843,7 +919,7 @@ mod_sub <- coxph(Surv(time,dead)~class_occ, robust=T, w=sw_f_sub_adj, data=dat_s
 binded_sub <- survdiffed_sub(datted=kapped_sub)
 ```
 
-##### IPW survival plot
+##### IPW survival plots
 
 ```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
 plotted(datted=kapped_over, 
@@ -866,7 +942,7 @@ plotted(datted=kapped_sub,
 ggsave("overall_subdivided_adj.png", dpi=600, height=4, width=8.75)
 ```
 
-##### IPW survival difference and hazard ratio
+##### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_over, bind=binded_over)
@@ -951,7 +1027,7 @@ plotted(datted=kapped_late,
 ggsave("change_over_time.png", dpi=600, height=4, width=8.75)
 ```
 
-##### IPW survival difference and hazard ratio
+##### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: IBOs (1986-1996 subset)")
@@ -1039,7 +1115,7 @@ plotted(datted=kapped_late,
 ggsave("change_over_time_adj.png", dpi=600, height=4, width=8.75)
 ```
 
-##### IPW survival difference and hazard ratio
+##### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: IBOs (1986-1996 subset)")
@@ -1101,7 +1177,7 @@ mod_race <- coxph(Surv(time,dead)~class_poc, robust=T, w=sw_f_race, data=dat_sub
 binded_race <- survdiffed_group(kapped_race)
 ```
 
-#### IPW survival plot
+#### IPW survival plots
 
 ```{r warning=FALSE, message=FALSE, fig.height=7.5, fig.width=8.75}
 plotted_group(kapped_gend, grpd1="Men", grpd2="Women", bottom=0.40) +
@@ -1112,11 +1188,13 @@ plotted_group(kapped_race, grpd1="NH white", grpd2="NH Black, Hispanic, and NH o
 ggsave("gender_race_survival.png", dpi=600, height=7.5, width=8.75)
 ```
 
-#### IPW survival difference and hazard ratio
+#### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_gend, bind=binded_gend, rows=1:9, nad=8, captioned="Ref: male IBOs")
+within_group_ests(datted=kapped_gend, modded=mod_gend, term1="class_genderFemale", captioned="Estimates among women (ref: female IBOs)")
 tidy_n(modded=mod_race, bind=binded_race, rows=1:9, nad=8, captioned="Ref: NH white IBOs")
+within_group_ests(datted=kapped_race, modded=mod_race, term1="class_pocPOC", captioned="Estimates among POC (ref: POC IBOs)")
 ```
 
 ## Class-by-education interaction
@@ -1147,7 +1225,7 @@ mod_educ <- coxph(Surv(time,dead)~class_educ, robust=T, w=sw_f_educ, data=dat_su
 binded_educ <- survdiffed_group(kapped_educ)
 ```
 
-#### IPW survival plot
+#### IPW survival plots
 
 ```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
 plotted_group(kapped_educ, grpd1=">HS", grpd2="\u2264HS", levelled=c("\u2264HS", ">HS"))
@@ -1155,10 +1233,11 @@ plotted_group(kapped_educ, grpd1=">HS", grpd2="\u2264HS", levelled=c("\u2264HS",
 ggsave("educ_survival.png", dpi=600, height=4, width=8.75)
 ```
 
-#### IPW survival difference and hazard ratio
+#### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_educ, bind=binded_educ, rows=1:9, nad=8, captioned="Ref: >HS IBOs")
+within_group_ests(datted=kapped_educ, modded=mod_educ, term1="class_educ=HS", captioned="Estimates among \u2264HS (ref: \u2264HS IBOs)")
 ```
 
 ## Class-by-age stratification - 25-44 vs 45-64 years old
@@ -1227,7 +1306,7 @@ plotted(datted=kapped_old, grpd="45-64", bottom=0.2) +
 ggsave("age_survival.png", dpi=600, height=4, width=8.75)
 ```
 
-#### IPW survival difference and hazard ratio
+#### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_young, bind=binded_young, captioned="Ref: IBOs (25-44 subset)")
@@ -1311,7 +1390,7 @@ mod_hisp <- coxph(Surv(time,dead)~class, robust=T, w=sw_hisp, data=dat_sub_hisp_
 binded_hisp <- survdiffed(kapped_hisp)
 ```
 
-#### IPW survival difference and hazard ratio
+#### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_hisp, bind=binded_hisp)
@@ -1319,42 +1398,44 @@ tidy_n(modded=mod_hisp, bind=binded_hisp)
 
 ### Class by year interaction with regression adjustment instead of period stratification and IPW
 
-Similar to primary. Used 2018 instead of 2019 as end-of-follow-up year because <50 respondents were interviewed in 2019.
+Similar to primary, but imprecise, especially in spline analyses. Used 2018 instead of 2019 as end-of-follow-up year because <50 respondents were interviewed in 2019. Pointwise confidence intervals. P-value is for chunk test of joint significance of interaction term.
 
-#### Less-adjusted
+#### Year as linear term
+
+##### Less-adjusted
 
 ```{r warning=FALSE, message=FALSE}
-mod_1986 <- coxph(Surv(time,dead)~class*I(int_year_fin - 1986) + rcs(age, 3) + sex, robust=T, w=mortwt_f, data=dat_sub_no_hisp)
+ddist <- datadist(dat_sub_no_hisp)
+options(datadist="ddist")
+mod_linear <- cph(Surv(time,dead)~class*int_year_fin + rcs(age, 3) + sex + cluster(nhispid), w=mortwt_f, data=dat_sub_no_hisp, x=T, y=T)
 
-kable(cbind(tidy(mod_1986, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], 
-            exp((rbind(confint(glht(mod_1986, linfct = c("classUBOs + 32*classUBOs:I(int_year_fin - 1986) = 0")))$confint[1:3],
-                       confint(glht(mod_1986, linfct = c("classMans + 32*classMans:I(int_year_fin - 1986) = 0")))$confint[1:3],
-                       confint(glht(mod_1986, linfct = c("classWrks + 32*classWrks:I(int_year_fin - 1986) = 0")))$confint[1:3],
-                       confint(glht(mod_1986, linfct = c("classNLFs + 32*classNLFs:I(int_year_fin - 1986) = 0")))$confint[1:3]))),
-            c(length(mod_1986$residuals), NA, NA, NA)),
-      col.names=c(" ", "HR", "Lower", "Upper", "HR", "Lower", "Upper", "N"),
-      caption="Ref: IBOs in given year",
-      digits=2) %>%
-  kable_styling("striped") %>%
-  add_header_above(c(" ", "HR in 1986"=3, "HR in 2018"=3, " "))
+int_year_func(modded=mod_linear)
 ```
 
-#### More-adjusted
+##### More-adjusted
 
 ```{r warning=FALSE, message=FALSE}
-mod_1986 <- coxph(Surv(time,dead)~class*I(int_year_fin - 1986) + rcs(age, 3) + sex + educ + marital_tri + region + race_h, robust=T, w=mortwt_f, data=dat_sub_no_hisp)
+mod_linear_adj <- cph(Surv(time,dead)~class*int_year_fin + rcs(age, 3) + sex + educ + marital_tri + region + race_h + cluster(nhispid), w=mortwt_f, data=dat_sub_no_hisp, x=T, y=T)
 
-kable(cbind(tidy(mod_1986, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], 
-            exp((rbind(confint(glht(mod_1986, linfct = c("classUBOs + 32*classUBOs:I(int_year_fin - 1986) = 0")))$confint[1:3],
-                       confint(glht(mod_1986, linfct = c("classMans + 32*classMans:I(int_year_fin - 1986) = 0")))$confint[1:3],
-                       confint(glht(mod_1986, linfct = c("classWrks + 32*classWrks:I(int_year_fin - 1986) = 0")))$confint[1:3],
-                       confint(glht(mod_1986, linfct = c("classNLFs + 32*classNLFs:I(int_year_fin - 1986) = 0")))$confint[1:3]))),
-            c(length(mod_1986$residuals), NA, NA, NA)),
-      col.names=c(" ", "HR", "Lower", "Upper", "HR", "Lower", "Upper", "N"),
-      caption="Ref: IBOs in given year",
-      digits=2) %>%
-  kable_styling("striped") %>%
-  add_header_above(c(" ", "HR in 1986"=3, "HR in 2018"=3, " "))
+int_year_func(modded=mod_linear_adj)
+```
+
+#### Year as 5-knot restricted cubic spline
+
+##### Less-adjusted
+
+```{r warning=FALSE, message=FALSE}
+mod_spline <- cph(Surv(time,dead)~class*rcs(int_year_fin, 5) + rcs(age, 3) + sex + cluster(nhispid), w=mortwt_f, data=dat_sub_no_hisp, x=T, y=T)
+
+int_year_func(modded=mod_spline)
+```
+
+##### More-adjusted
+
+```{r warning=FALSE, message=FALSE}
+mod_spline_adj <- cph(Surv(time,dead)~class*rcs(int_year_fin, 5) + rcs(age, 3) + sex + educ + marital_tri + region + race_h + cluster(nhispid), w=mortwt_f, data=dat_sub_no_hisp, x=T, y=T)
+
+int_year_func(modded=mod_spline_adj)
 ```
 
 ### Including employed "chief executives, general and operative managers, and legislators" in IBO class rather than managerial class from 2005-2018
@@ -1394,7 +1475,7 @@ mod_ceo <- coxph(Surv(time,dead)~class, robust=T, w=sw_f_ceo, data=dat_sub_no_hi
 binded_ceo <- survdiffed(kapped_ceo, timed=15)
 ```
 
-#### IPW survival difference and hazard ratio
+#### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_ceo, bind=binded_ceo)
