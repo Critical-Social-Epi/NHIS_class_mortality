@@ -22,9 +22,6 @@ always_allow_html: true
   + Workers (wrks) are those who are unemployed/"not employed" (few people) OR who are employed but do not have a management occupation
   + Not in the labor force (NLFs) are those who are "not in the labor force" 
 <br>
-* To do:
-  + Make sure ok to link IPUMS NHIS to CDC NHIS (e.g., that IPUMS doesnt have concerns about data quality - check back into forum periodically)
-<br>
 * Useful references regarding IBOs vs UBOs:
   + Nuts and bolts: 
     - https://smallbusiness.chron.com/difference-between-incorporated-unincorporated-businesses-57463.html
@@ -44,7 +41,7 @@ always_allow_html: true
   + Useful citation regarding occupation and mortality in NHIS: https://www.sciencedirect.com/science/article/pii/S0091743520301535 and http://paa2019.populationassociation.org/uploads/190718
 <br>
 * Methods notes: 
-  + Monitor release of update IPUMS linked datasets (expected August release date) and vintage-specific weights  (https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486/12)
+  + Monitor release of vintage-specific weights  (https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486/12)
   + When robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rather than frequency weights)
   + Citations for IPW and survey weighting approach: https://www.ncbi.nlm.nih.gov/labs/pmc/articles/PMC5802372/ and https://journals.sagepub.com/doi/full/10.1177/0193841X20938497
   
@@ -76,54 +73,43 @@ library(multcomp)
 options(scipen=999)
 options(knitr.kable.NA = '')
 
-#####manage ipums dat
-#load ipums dat
-dat_ipums <- fread(here('ipums_dat_1986_2018.csv'))
+#load ipums data
+dat <- fread(here('nhis_ndi_1986_2018_ipums.csv'))
 
-#make all variable names lowercase, fix merging id, and remove mortality variables
-dat_ipums %>%
+#make all variable names lowercase
+#sort data by nhispid to keep results consistent across runs, as output from ipw package is (very minorly) affected by observation order
+dat %>%
   rename_all(tolower) %>%
-  mutate(nhispid=as.numeric(nhispid)) %>%
-  dplyr::select(-c(mortelig, mortstat, mortdodq, mortdody, mortucod, mortucodld, mortdiab, morthipfx, morthypr, mortcms, mortndi)) -> dat_ipums
-
-#####manage nchs mort dat
-dat_nchs <- fread(here('mort_dat_1986_2018_2019.csv'))
-
-#make merging id
-dat_nchs %>%
-  mutate(nhispid=as.numeric(ifelse(year<1997, paste(19, publicid, sep=""), paste(year, substring(publicid, 5), sep="")))) -> dat_nchs
-
-#####merge
-merged <- merge(dat_ipums, dat_nchs, by=c("nhispid", "year"), all=T)
+  arrange(nhispid) -> dat
 
 #####exclusions
 #exclude those outside age ranges (age has 0.09% missing)
 #exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time); #note, from 2015-2018, only sample adult and sample child participants were eligible for mortality follow-up
 #exclude 1997-2000, when there's no data on whether business is incorporated or not
 #we'll exclude 1992 Hispanic oversample (only 3517 additional respondents) (per advice of IPUMS) separately, as we want to include them in sensitivity analyses
-merged %>%
-  filter((age>=25 & age<65) & eligstat==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000))) -> dat_sub
+dat %>%
+  filter((age>=25 & age<65) & mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000))) -> dat_sub
 
 #make variables
 dat_sub %>%
-  mutate_at(.vars=(vars(-c(ucod_leading, wgt_new, sa_wgt_new, mortwt, mortwtsa, psu, strata, nhispid, nhishid))),
+  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata, nhispid, nhishid))),
             ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 997, 999, 7777, 8888, 9998, 9999), NA, .)) %>%
   mutate(classwk2=ifelse(classwk2 %in% (7:9), NA, classwk2), #these are real values in some other variables so we'll reset them here
          jobsecincorp=ifelse(jobsecincorp %in% (7:9), NA, jobsecincorp),
          racesr=ifelse(racesr==900, NA, racesr),
          lamtwrk=ifelse(lamtwrk %in% 7:9, NA, lamtwrk)) %>%
-  mutate(mortwt_f=ifelse(year==1986, mortwt, #per NCHS advice, use basic weight in 1986 (IPUMS), person mort weights 1987-1996 (NCHS), then sample adult mort weights 1997-2018 (NCHS)
-                         ifelse(year>1986 & year<=1996, wgt_new, sa_wgt_new)), #https://www.cdc.gov/nchs/data/datalinkage/2019NDI-Linkage-Methods-and-Analytic-Considerations-508.pdf
+  #per IPUMS's advice, use mortwt from 1986-1996 and mortwtsa from 1997-on: https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486
+  mutate(mortwt_f=ifelse(year<=1996, mortwt, mortwtsa),
          hispanic_oversample=ifelse((year==1992 & substr(nhispid, 1, 4)==1991), 1, 0),
          int_year_fin=ifelse(year<2001, year, #1986-1996, separate interview year unavailable
                              ifelse(year>=2001 & !is.na(intervwyr), intervwyr, year)), #if interview year is missing (<0.1%), assume it happened in survey-wave year (true in >99% of cases)
          dead=ifelse(mortstat==1, 1, 0),
-         time=ifelse(dead==0, 2020 - int_year_fin, dodyear + 1 - int_year_fin), #deaths thru end of 2019, ie, 2020; assume deaths occurred at end of each year (1986 deaths occurred at end of 1986, ie, 1987)
+         time=ifelse(dead==0, 2020 - int_year_fin, mortdody + 1 - int_year_fin), #deaths thru end of 2019, ie, 2020; assume deaths occurred at end of each year (1986 deaths occurred at end of 1986, ie, 1987)
          dead_86_96_05=ifelse(int_year_fin>1996, NA, #time and death indicators for 1986-1996 panel
-                              ifelse(int_year_fin<=1996 & (is.na(dodyear) | dodyear>2004), 0,
-                                    ifelse(int_year_fin<=1996 & dodyear<=2004, 1, NA))),
+                              ifelse(int_year_fin<=1996 & (is.na(mortdody) | mortdody>2004), 0,
+                                    ifelse(int_year_fin<=1996 & mortdody<=2004, 1, NA))),
          time_86_96_05=ifelse(int_year_fin>1996, NA,
-                              ifelse(dead_86_96_05==1, dodyear + 1 - int_year_fin,
+                              ifelse(dead_86_96_05==1, mortdody + 1 - int_year_fin,
                                      ifelse(dead_86_96_05==0, 2005-int_year_fin, NA))),
          race=ifelse(racesr==100, "White", 
                      ifelse(racesr==200, "Black", "Other")),
@@ -195,7 +181,7 @@ dat_sub %>%
                                                                                          ifelse(class=="NLFs" & (educ=="Some college" | educ=="College+"), ">HS NLFs", NA)))))))))),
                           levels=c(">HS IBOs", ">HS UBOs", ">HS mans", ">HS wrks", ">HS NLFs",
                                    "\u2264HS IBOs", "\u2264HS UBOs", "\u2264HS mans", "\u2264HS wrks", "\u2264HS NLFs")),
-         class_sens=factor(ifelse(year<2001 | year>2003, NA, #identical to class variable
+         class_sens=factor(ifelse(year<2001 | year>2003, NA, #identical to primary class variable (in 2002, both approaches to measuring business ownership with classwk/classwk2/etc overlapped)
                                   ifelse(empstat==220, "NLFs",
                                          ifelse((empstat>=200 & empstat<=214) | (classwk>=20 & classwk<=34 & managers!=1), "Wrks",
                                                 ifelse((classwk>=20 & classwk<=34 & managers==1), "Mans",
@@ -212,10 +198,6 @@ dat_sub %>%
                                                                            ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "UBOs", NA)))))))), 
                      levels=c("IBOs", "UBOs", "Mans", "White collar", "Services", "Blue collar/farm", "Unemps", "NLFs"))) -> dat_sub
 
-#exclude 1 respondent who supposedly died the year before being interviewed (possibly due to NCHS data peturbation date of death: https://www.cdc.gov/nchs/data/datalinkage/public-use-2015-linked-mortality-file-description.pdf)
-dat_sub %>%
-  filter(time>=0) -> dat_sub
-
 #make dataset without hispanic oversample for main analyses
 dat_sub %>%
   filter(hispanic_oversample==0) -> dat_sub_no_hisp
@@ -227,10 +209,10 @@ Age missingness is in full dataset among years and samples of interest; missingn
 
 ```{r message=FALSE, warning=FALSE}
 #age in full dataset
-merged %>%
-  filter(eligstat==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000)) & 
+dat %>%
+  filter(mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000)) & 
            !(year==1992 & substr(nhispid, 1, 4)==1991)) %>%
-  mutate_at(.vars=(vars(-c(ucod_leading, mortwt, mortwtsa, psu, strata, nhispid, nhishid))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
+  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata, nhispid, nhishid))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
   dplyr::select('age') %>%
   miss_var_summary() -> dat_age_na
 
@@ -255,11 +237,11 @@ Weighted and excluding missingness unless otherwise noted
 
 ```{r message=FALSE, warning=FALSE}
 #vars of interest
-vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'year', 'time', 'dead')
+vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'int_year_fin', 'time', 'dead')
 catvars <- c("sex", 'dead')
 nonorm <- c('age', 'year', 'time')
 
-x <- CreateTableOne(data = dat_sub_no_hisp, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
+x <- CreateTableOne(data=dat_sub_no_hisp, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, test=FALSE)
 kable(x) %>%
   kable_styling(c("striped", "condensed"))
@@ -274,7 +256,7 @@ dat_sub_no_hisp_svy <- svydesign(ids = ~ psu,
                          nest=TRUE, 
                          data=dat_sub_no_hisp)
 
-x <- svyCreateTableOne(data = dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class', includeNA=FALSE)
+x <- svyCreateTableOne(data=dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 kable(x) %>%
   kable_styling(c("striped", "condensed"))
@@ -341,7 +323,7 @@ ggsave('proportions_over_time.png', dpi=600)
 Income coding inconsistent prior to 2007. Unadjusted for inflation. Row label shows lower bound of category.
 
 ```{r message=FALSE, warning=FALSE}
-x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=2007), vars='incimp1_rev', factorVars='incimp1_rev', strata='class', includeNA=FALSE)
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2007), vars='incimp1_rev', factorVars='incimp1_rev', strata='class', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 row.names(x)[3:23] <- c(paste0(seq(0,95,5), "k"),">=100k")
 kable(x[3:23,]) %>%
@@ -353,7 +335,7 @@ kable(x[3:23,]) %>%
 Excluding those not working. IBOs 4x as likely as UBOs to be in firms with 10+ employees. It probably makes sense that managers and workers are much more likely than business owners to work in larger firms, since any given firm, regardless of size, will only have one owner (in theory), whereas such firms will have multiple workers. For example, in a society with 5 firms, 4 of which have 5 employees and 1 of which has 1000 employees, 80% of owners will come from firms with 5 employees, but 98% (1000/1020) of workers will come from firms with 1000+ employees.
 
 ```{r message=FALSE, warning=FALSE}
-x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=2001 & numemps!=0 & class!="NLFs"), vars='numemps', factorVars='numemps', strata='class', includeNA=FALSE)
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2001 & numemps!=0 & class!="NLFs"), vars='numemps', factorVars='numemps', strata='class', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 row.names(x)[3:10] <- c("1-9", "10-24", "25-49", "50-99", "100-249", "250-499", "500-999", "1000+")
 kable(x[3:10,1:4]) %>%
@@ -367,7 +349,7 @@ kable(x[3:10,1:4]) %>%
 Variable only available from 2004-on.
 
 ```{r warning=FALSE, message=FALSE}
-x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=2004 & empstat==220 & whynowk2!=0), vars='whynowk2', factorVars='whynowk2', includeNA=FALSE)
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2004 & empstat==220 & whynowk2!=0), vars='whynowk2', factorVars='whynowk2', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 row.names(x)[3:12] <- c("Keeping house", "Going to school", "Retired", "Unable to work for health reasons", "Disabled", "On layoff", "On planned vacation", "On family leave", "Have job/contract; off season", "Other")
 kable(x[3:12,], digits=2, col.names="Percent") %>% 
@@ -379,7 +361,7 @@ kable(x[3:12,], digits=2, col.names="Percent") %>%
 Variable only available from 1997-on.
 
 ```{r warning=FALSE, message=FALSE}
-x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=1997), vars='lamtwrk', factorVars='lamtwrk', strata='empstat', includeNA=FALSE)
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=1997), vars='lamtwrk', factorVars='lamtwrk', strata='empstat', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 row.names(x)[3:5] <- c("Not limited", "Limited", "Unable to work")
 kable(x[3:5,], col.names=c("Working for pay", "Working w/o pay", "With job, but not at work", "Not employed", "NILF")) %>% 
@@ -709,7 +691,7 @@ dat_sub_no_hisp %>%
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                          data = dat_sub_no_hisp,
+                          data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           trace=FALSE,
                           maxit=1000)$ipw.weights,
@@ -727,7 +709,7 @@ dat_sub_no_hisp %>%
                          link="logit",
                          numerator=~1,
                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                         data = dat_sub_no_hisp,
+                         data=dat_sub_no_hisp,
                          weights=mortwt_f,
                          maxit=1000,
                          trace=FALSE)$ipw.weights,
@@ -796,17 +778,17 @@ binded_sub <- survdiffed_sub(datted=kapped_sub)
 plotted(datted=kapped_over, 
         grpd="Workers undivided", 
         grps=170) + 
-  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.18))) +
 plotted(datted=kapped_sub, 
-        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mans", 34), rep("WC", 34), rep("Servs", 34), 
-                         rep("BC/farm", 34), rep("Unemps", 34), rep("NLFs", 34)), 
-                       levels=c("IBOs", "UBOs", "Mans", "WC", "BC/farm", "Servs", "Unemps", "NLFs")),
+        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mans", 34), rep("WCs", 34), rep("Servs", 34), 
+                         rep("BC/farms", 34), rep("Unemps", 34), rep("NLFs", 34)), 
+                       levels=c("IBOs", "UBOs", "Mans", "WCs", "BC/farms", "Servs", "Unemps", "NLFs")),
         grpd="Workers subdivided",
         grps=272, 
         repped=8,
-        dummied=c("IBOs", "UBOs", "Mans", "WC", "Servs", "BC/farm", "Unemps", "NLFs"),
+        dummied=c("IBOs", "UBOs", "Mans", "WCs", "Servs", "BC/farms", "Unemps", "NLFs"),
         val=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) + 
-  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.18))) +
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
 
 ggsave("overall_subdivided.png", dpi=600, height=4, width=8.75)
@@ -834,7 +816,7 @@ dat_sub_no_hisp %>%
                               link="logit",
                               numerator=~1,
                               denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5) + educ + marital_tri + region + race_h, 
-                              data = dat_sub_no_hisp,
+                              data=dat_sub_no_hisp,
                               weights=mortwt_f,
                               trace=FALSE,
                               maxit=1000,
@@ -853,7 +835,7 @@ dat_sub_no_hisp %>%
                          link="logit",
                          numerator=~1,
                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5) + educ + marital_tri + region + race_h, 
-                         data = dat_sub_no_hisp,
+                         data=dat_sub_no_hisp,
                          weights=mortwt_f,
                          trace=FALSE,
                          maxit=1000,
@@ -965,7 +947,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
-                     data = subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
@@ -984,7 +966,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
-                     data = subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
@@ -1050,7 +1032,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3) + educ + marital_tri + region + race_h, 
-                     data = subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
                      weights=mortwt_f,
                      trace=FALSE,
                      maxit=1000,
@@ -1070,7 +1052,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3) + educ + marital_tri + region + race_h, 
-                     data = subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
                      weights=mortwt_f,
                      trace=FALSE,
                      maxit=1000,
@@ -1135,7 +1117,7 @@ dat_sub_no_hisp %>%
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
-                          data = dat_sub_no_hisp,
+                          data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           maxit=1000,
                           trace=FALSE)$ipw.weights,
@@ -1154,7 +1136,7 @@ dat_sub_no_hisp %>%
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
-                          data = dat_sub_no_hisp,
+                          data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           maxit=1000,
                           trace=FALSE)$ipw.weights,
@@ -1182,7 +1164,7 @@ binded_race <- survdiffed_group(kapped_race)
 ```{r warning=FALSE, message=FALSE, fig.height=7.5, fig.width=8.75}
 plotted_group(kapped_gend, grpd1="Men", grpd2="Women", bottom=0.40) +
   theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
-plotted_group(kapped_race, grpd1="NH white", grpd2="NH Black, Hispanic, and NH other", bottom=0.40) +
+plotted_group(kapped_race, grpd1="NH white", grpd2="NH Black, Hispanic, or NH other", bottom=0.40) +
   plot_layout(ncol=1)
 
 ggsave("gender_race_survival.png", dpi=600, height=7.5, width=8.75)
@@ -1254,7 +1236,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                     data = subset(dat_sub_no_hisp, age<45),
+                     data=subset(dat_sub_no_hisp, age<45),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
@@ -1273,7 +1255,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                     data = subset(dat_sub_no_hisp, age>=45),
+                     data=subset(dat_sub_no_hisp, age>=45),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
@@ -1375,7 +1357,7 @@ dat_sub %>%
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                          data = subset(dat_sub, !is.na(class) & !is.na(age)),
+                          data=subset(dat_sub, !is.na(class) & !is.na(age)),
                           weights=mortwt_f,
                           maxit=1000,
                           trace=FALSE)$ipw.weights,
@@ -1394,6 +1376,38 @@ binded_hisp <- survdiffed(kapped_hisp)
 
 ```{r}
 tidy_n(modded=mod_hisp, bind=binded_hisp)
+```
+
+### Excluding NHIS sampling weights from analyses 
+
+Similar to primary analyses, but somewhat attenuated.
+
+#### Distribution of IPW
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_over_excl=ipwpoint(exposure=class,
+                               family="multinomial",
+                               link="logit",
+                               numerator=~1,
+                               denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                               data=dat_sub_no_hisp,
+                               trace=FALSE,
+                               maxit=1000)$ipw.weights)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_over_excl)
+```
+
+```{r warning=FALSE, message=FALSE}
+kapped_over_excl <- survfit(Surv(time,dead)~class, robust=T, w=sw_over_excl, data=dat_sub_no_hisp, se=T)
+mod_over_excl <- coxph(Surv(time,dead)~class, robust=T, w=sw_over_excl, data=dat_sub_no_hisp)
+binded_over_excl <- survdiffed(datted=kapped_over_excl)
+```
+
+#### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_over_excl, bind=binded_over_excl)
 ```
 
 ### Class by year interaction with regression adjustment instead of period stratification and IPW
@@ -1479,6 +1493,49 @@ binded_ceo <- survdiffed(kapped_ceo, timed=15)
 
 ```{r}
 tidy_n(modded=mod_ceo, bind=binded_ceo)
+```
+
+# Confirming class variables are coded correctly
+
+```{r message=FALSE, warning=FALSE}
+kable(table(dat_sub_no_hisp$class, dat_sub_no_hisp$empstat), caption="Confirming that all unemployed (200-214) are workers and all NLF (220) are NLF") %>%
+  kable_styling("striped")
+
+kable(table(dat_sub_no_hisp$class, dat_sub_no_hisp$managers), caption="Class by manager: 1=managers") %>%
+  kable_styling("striped") 
+
+kable(table(subset(dat_sub_no_hisp, managers==1)$class, subset(dat_sub_no_hisp, managers==1)$empstat), caption="Confirming that all workers and NLFs who have 'managers==1' are either unemp or NLF") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, managers==1 & year<2001)$class, subset(dat_sub_no_hisp, managers==1 & year<2001)$classwk), 
+      caption="1986-1996: confirming that all IBOs and UBOs who have 'managers==1' are self-employed") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, managers==1 & year>=2001)$class, subset(dat_sub_no_hisp, managers==1 & year>=2001)$classwk2), 
+      caption="2001-2018: confirming that all IBOs and UBOs who have 'managers==1' are self-employed") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year<2001)$class, subset(dat_sub_no_hisp, year<2001)$classwk), caption="1986-1996: class by classwk; all 41 are IBO/wrk and 42-50 are UBO/wrk") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year<2001 & class=="Wrks")$classwk, subset(dat_sub_no_hisp, year<2001 & class=="Wrks")$empstat), 
+            caption="1986-1996: confirming that all workers who have classwk==41-50 are unemployed (211-214)") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year>=2001)$class, subset(dat_sub_no_hisp, year>=2001)$classwk2), caption="2001-2018: class by classwk; all 5-6 are IBO/UBO/wrk/NLF") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="Wrks")$classwk2, subset(dat_sub_no_hisp, year>=2001 & class=="Wrks")$empstat), 
+            caption="2001-2018: confirming that all workers who have classwk==5-6 are unemployed (200)") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="IBOs" | class=="UBOs")$class, subset(dat_sub_no_hisp, year>=2001 & class=="IBOs" | class=="UBOs")$jobsecincorp), 
+            caption="2001-2018: confirming that all self-employed (classwk2 5-6) with jobsecincorp==2 are IBO and jobsecincorp==1 or 0 are UBO)") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="UBOs")$classwk2, subset(dat_sub_no_hisp, year>=2001 & class=="UBOs")$jobsecincorp), 
+            caption="2001-2018: confirming that all UBOs with jobsecincorp==0 have classwk2==6 (working w/o pay in family bus/farm)") %>%
+  kable_styling("striped")
 ```
 
 # Session info

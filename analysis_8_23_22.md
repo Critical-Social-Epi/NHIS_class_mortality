@@ -22,9 +22,6 @@ always_allow_html: true
   + Workers (wrks) are those who are unemployed/"not employed" (few people) OR who are employed but do not have a management occupation
   + Not in the labor force (NLFs) are those who are "not in the labor force" 
 <br>
-* To do:
-  + Make sure ok to link IPUMS NHIS to CDC NHIS (e.g., that IPUMS doesnt have concerns about data quality - check back into forum periodically)
-<br>
 * Useful references regarding IBOs vs UBOs:
   + Nuts and bolts: 
     - https://smallbusiness.chron.com/difference-between-incorporated-unincorporated-businesses-57463.html
@@ -44,7 +41,7 @@ always_allow_html: true
   + Useful citation regarding occupation and mortality in NHIS: https://www.sciencedirect.com/science/article/pii/S0091743520301535 and http://paa2019.populationassociation.org/uploads/190718
 <br>
 * Methods notes: 
-  + Monitor release of update IPUMS linked datasets (expected August release date) and vintage-specific weights  (https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486/12)
+  + Monitor release of vintage-specific weights  (https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486/12)
   + When robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rather than frequency weights)
   + Citations for IPW and survey weighting approach: https://www.ncbi.nlm.nih.gov/labs/pmc/articles/PMC5802372/ and https://journals.sagepub.com/doi/full/10.1177/0193841X20938497
   
@@ -75,54 +72,43 @@ library(multcomp)
 options(scipen=999)
 options(knitr.kable.NA = '')
 
-#####manage ipums dat
-#load ipums dat
-dat_ipums <- fread(here('ipums_dat_1986_2018.csv'))
+#load ipums data
+dat <- fread(here('nhis_ndi_1986_2018_ipums.csv'))
 
-#make all variable names lowercase, fix merging id, and remove mortality variables
-dat_ipums %>%
+#make all variable names lowercase
+#sort data by nhispid to keep results consistent across runs, as output from ipw package is (very minorly) affected by observation order
+dat %>%
   rename_all(tolower) %>%
-  mutate(nhispid=as.numeric(nhispid)) %>%
-  dplyr::select(-c(mortelig, mortstat, mortdodq, mortdody, mortucod, mortucodld, mortdiab, morthipfx, morthypr, mortcms, mortndi)) -> dat_ipums
-
-#####manage nchs mort dat
-dat_nchs <- fread(here('mort_dat_1986_2018_2019.csv'))
-
-#make merging id
-dat_nchs %>%
-  mutate(nhispid=as.numeric(ifelse(year<1997, paste(19, publicid, sep=""), paste(year, substring(publicid, 5), sep="")))) -> dat_nchs
-
-#####merge
-merged <- merge(dat_ipums, dat_nchs, by=c("nhispid", "year"), all=T)
+  arrange(nhispid) -> dat
 
 #####exclusions
 #exclude those outside age ranges (age has 0.09% missing)
 #exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time); #note, from 2015-2018, only sample adult and sample child participants were eligible for mortality follow-up
 #exclude 1997-2000, when there's no data on whether business is incorporated or not
 #we'll exclude 1992 Hispanic oversample (only 3517 additional respondents) (per advice of IPUMS) separately, as we want to include them in sensitivity analyses
-merged %>%
-  filter((age>=25 & age<65) & eligstat==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000))) -> dat_sub
+dat %>%
+  filter((age>=25 & age<65) & mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000))) -> dat_sub
 
 #make variables
 dat_sub %>%
-  mutate_at(.vars=(vars(-c(ucod_leading, wgt_new, sa_wgt_new, mortwt, mortwtsa, psu, strata, nhispid, nhishid))),
+  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata, nhispid, nhishid))),
             ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 997, 999, 7777, 8888, 9998, 9999), NA, .)) %>%
   mutate(classwk2=ifelse(classwk2 %in% (7:9), NA, classwk2), #these are real values in some other variables so we'll reset them here
          jobsecincorp=ifelse(jobsecincorp %in% (7:9), NA, jobsecincorp),
          racesr=ifelse(racesr==900, NA, racesr),
          lamtwrk=ifelse(lamtwrk %in% 7:9, NA, lamtwrk)) %>%
-  mutate(mortwt_f=ifelse(year==1986, mortwt, #per NCHS advice, use basic weight in 1986 (IPUMS), person mort weights 1987-1996 (NCHS), then sample adult mort weights 1997-2018 (NCHS)
-                         ifelse(year>1986 & year<=1996, wgt_new, sa_wgt_new)), #https://www.cdc.gov/nchs/data/datalinkage/2019NDI-Linkage-Methods-and-Analytic-Considerations-508.pdf
+  #per IPUMS's advice, use mortwt from 1986-1996 and mortwtsa from 1997-on: https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486
+  mutate(mortwt_f=ifelse(year<=1996, mortwt, mortwtsa),
          hispanic_oversample=ifelse((year==1992 & substr(nhispid, 1, 4)==1991), 1, 0),
          int_year_fin=ifelse(year<2001, year, #1986-1996, separate interview year unavailable
                              ifelse(year>=2001 & !is.na(intervwyr), intervwyr, year)), #if interview year is missing (<0.1%), assume it happened in survey-wave year (true in >99% of cases)
          dead=ifelse(mortstat==1, 1, 0),
-         time=ifelse(dead==0, 2020 - int_year_fin, dodyear + 1 - int_year_fin), #deaths thru end of 2019, ie, 2020; assume deaths occurred at end of each year (1986 deaths occurred at end of 1986, ie, 1987)
+         time=ifelse(dead==0, 2020 - int_year_fin, mortdody + 1 - int_year_fin), #deaths thru end of 2019, ie, 2020; assume deaths occurred at end of each year (1986 deaths occurred at end of 1986, ie, 1987)
          dead_86_96_05=ifelse(int_year_fin>1996, NA, #time and death indicators for 1986-1996 panel
-                              ifelse(int_year_fin<=1996 & (is.na(dodyear) | dodyear>2004), 0,
-                                    ifelse(int_year_fin<=1996 & dodyear<=2004, 1, NA))),
+                              ifelse(int_year_fin<=1996 & (is.na(mortdody) | mortdody>2004), 0,
+                                    ifelse(int_year_fin<=1996 & mortdody<=2004, 1, NA))),
          time_86_96_05=ifelse(int_year_fin>1996, NA,
-                              ifelse(dead_86_96_05==1, dodyear + 1 - int_year_fin,
+                              ifelse(dead_86_96_05==1, mortdody + 1 - int_year_fin,
                                      ifelse(dead_86_96_05==0, 2005-int_year_fin, NA))),
          race=ifelse(racesr==100, "White", 
                      ifelse(racesr==200, "Black", "Other")),
@@ -194,7 +180,7 @@ dat_sub %>%
                                                                                          ifelse(class=="NLFs" & (educ=="Some college" | educ=="College+"), ">HS NLFs", NA)))))))))),
                           levels=c(">HS IBOs", ">HS UBOs", ">HS mans", ">HS wrks", ">HS NLFs",
                                    "\u2264HS IBOs", "\u2264HS UBOs", "\u2264HS mans", "\u2264HS wrks", "\u2264HS NLFs")),
-         class_sens=factor(ifelse(year<2001 | year>2003, NA, #identical to class variable
+         class_sens=factor(ifelse(year<2001 | year>2003, NA, #identical to primary class variable (in 2002, both approaches to measuring business ownership with classwk/classwk2/etc overlapped)
                                   ifelse(empstat==220, "NLFs",
                                          ifelse((empstat>=200 & empstat<=214) | (classwk>=20 & classwk<=34 & managers!=1), "Wrks",
                                                 ifelse((classwk>=20 & classwk<=34 & managers==1), "Mans",
@@ -211,10 +197,6 @@ dat_sub %>%
                                                                            ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "UBOs", NA)))))))), 
                      levels=c("IBOs", "UBOs", "Mans", "White collar", "Services", "Blue collar/farm", "Unemps", "NLFs"))) -> dat_sub
 
-#exclude 1 respondent who supposedly died the year before being interviewed (possibly due to NCHS data peturbation date of death: https://www.cdc.gov/nchs/data/datalinkage/public-use-2015-linked-mortality-file-description.pdf)
-dat_sub %>%
-  filter(time>=0) -> dat_sub
-
 #make dataset without hispanic oversample for main analyses
 dat_sub %>%
   filter(hispanic_oversample==0) -> dat_sub_no_hisp
@@ -227,10 +209,10 @@ Age missingness is in full dataset among years and samples of interest; missingn
 
 ```r
 #age in full dataset
-merged %>%
-  filter(eligstat==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000)) & 
+dat %>%
+  filter(mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000)) & 
            !(year==1992 & substr(nhispid, 1, 4)==1991)) %>%
-  mutate_at(.vars=(vars(-c(ucod_leading, mortwt, mortwtsa, psu, strata, nhispid, nhishid))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
+  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata, nhispid, nhishid))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
   dplyr::select('age') %>%
   miss_var_summary() -> dat_age_na
 
@@ -305,11 +287,11 @@ Weighted and excluding missingness unless otherwise noted
 
 ```r
 #vars of interest
-vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'year', 'time', 'dead')
+vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'int_year_fin', 'time', 'dead')
 catvars <- c("sex", 'dead')
 nonorm <- c('age', 'year', 'time')
 
-x <- CreateTableOne(data = dat_sub_no_hisp, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
+x <- CreateTableOne(data=dat_sub_no_hisp, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, test=FALSE)
 kable(x) %>%
   kable_styling(c("striped", "condensed"))
@@ -504,12 +486,12 @@ kable(x) %>%
    <td style="text-align:left;"> 48.00 [35.00, 59.00] </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> year (median [IQR]) </td>
-   <td style="text-align:left;"> 1994.00 [1990.00, 2005.00] </td>
-   <td style="text-align:left;"> 1993.00 [1989.00, 2003.00] </td>
-   <td style="text-align:left;"> 1994.00 [1990.00, 2007.00] </td>
-   <td style="text-align:left;"> 1994.00 [1990.00, 2007.00] </td>
-   <td style="text-align:left;"> 1994.00 [1990.00, 2007.00] </td>
+   <td style="text-align:left;"> int_year_fin (mean (SD)) </td>
+   <td style="text-align:left;"> 1997.56 (9.70) </td>
+   <td style="text-align:left;"> 1996.36 (9.17) </td>
+   <td style="text-align:left;"> 1998.38 (10.04) </td>
+   <td style="text-align:left;"> 1998.09 (9.87) </td>
+   <td style="text-align:left;"> 1998.18 (9.96) </td>
   </tr>
   <tr>
    <td style="text-align:left;"> time (median [IQR]) </td>
@@ -540,7 +522,7 @@ dat_sub_no_hisp_svy <- svydesign(ids = ~ psu,
                          nest=TRUE, 
                          data=dat_sub_no_hisp)
 
-x <- svyCreateTableOne(data = dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class', includeNA=FALSE)
+x <- svyCreateTableOne(data=dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 kable(x) %>%
   kable_styling(c("striped", "condensed"))
@@ -735,12 +717,12 @@ kable(x) %>%
    <td style="text-align:left;"> 49.00 [36.00, 59.00] </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> year (median [IQR]) </td>
-   <td style="text-align:left;"> 2005.00 [1994.00, 2012.00] </td>
-   <td style="text-align:left;"> 2003.00 [1992.00, 2010.00] </td>
-   <td style="text-align:left;"> 2006.00 [1995.00, 2013.00] </td>
-   <td style="text-align:left;"> 2006.00 [1994.00, 2012.00] </td>
-   <td style="text-align:left;"> 2006.00 [1994.00, 2012.00] </td>
+   <td style="text-align:left;"> int_year_fin (mean (SD)) </td>
+   <td style="text-align:left;"> 2003.50 (9.76) </td>
+   <td style="text-align:left;"> 2001.84 (9.99) </td>
+   <td style="text-align:left;"> 2004.14 (9.90) </td>
+   <td style="text-align:left;"> 2003.71 (9.85) </td>
+   <td style="text-align:left;"> 2003.80 (9.89) </td>
   </tr>
   <tr>
    <td style="text-align:left;"> time (median [IQR]) </td>
@@ -873,7 +855,7 @@ ggplot(data=dat_sub_no_hisp) +
         axis.text.y=element_text(size=10, color="black"), axis.text.x=element_text(size=10, color="black", angle=25, vjust=1, hjust=1)) 
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
 
 ```r
 ggsave('mosaic.png', dpi=600, height=5, width=10)
@@ -906,7 +888,7 @@ ggplot(propped, aes(x=int_year_fin, y=prop, group=class, color=class, label=clas
   theme(legend.position = "none")
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
 
 ```r
 ggsave('proportions_over_time.png', dpi=600)
@@ -918,7 +900,7 @@ Income coding inconsistent prior to 2007. Unadjusted for inflation. Row label sh
 
 
 ```r
-x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=2007), vars='incimp1_rev', factorVars='incimp1_rev', strata='class', includeNA=FALSE)
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2007), vars='incimp1_rev', factorVars='incimp1_rev', strata='class', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 row.names(x)[3:23] <- c(paste0(seq(0,95,5), "k"),">=100k")
 kable(x[3:23,]) %>%
@@ -1114,7 +1096,7 @@ Excluding those not working. IBOs 4x as likely as UBOs to be in firms with 10+ e
 
 
 ```r
-x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=2001 & numemps!=0 & class!="NLFs"), vars='numemps', factorVars='numemps', strata='class', includeNA=FALSE)
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2001 & numemps!=0 & class!="NLFs"), vars='numemps', factorVars='numemps', strata='class', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 row.names(x)[3:10] <- c("1-9", "10-24", "25-49", "50-99", "100-249", "250-499", "500-999", "1000+")
 kable(x[3:10,1:4]) %>%
@@ -1199,7 +1181,7 @@ Variable only available from 2004-on.
 
 
 ```r
-x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=2004 & empstat==220 & whynowk2!=0), vars='whynowk2', factorVars='whynowk2', includeNA=FALSE)
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2004 & empstat==220 & whynowk2!=0), vars='whynowk2', factorVars='whynowk2', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 row.names(x)[3:12] <- c("Keeping house", "Going to school", "Retired", "Unable to work for health reasons", "Disabled", "On layoff", "On planned vacation", "On family leave", "Have job/contract; off season", "Other")
 kable(x[3:12,], digits=2, col.names="Percent") %>% 
@@ -1263,7 +1245,7 @@ Variable only available from 1997-on.
 
 
 ```r
-x <- svyCreateTableOne(data = subset(dat_sub_no_hisp_svy, year>=1997), vars='lamtwrk', factorVars='lamtwrk', strata='empstat', includeNA=FALSE)
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=1997), vars='lamtwrk', factorVars='lamtwrk', strata='empstat', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 row.names(x)[3:5] <- c("Not limited", "Limited", "Unable to work")
 kable(x[3:5,], col.names=c("Working for pay", "Working w/o pay", "With job, but not at work", "Not employed", "NILF")) %>% 
@@ -1634,7 +1616,7 @@ dat_sub_no_hisp %>%
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                          data = dat_sub_no_hisp,
+                          data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           trace=FALSE,
                           maxit=1000)$ipw.weights,
@@ -1658,7 +1640,7 @@ dat_sub_no_hisp %>%
                          link="logit",
                          numerator=~1,
                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                         data = dat_sub_no_hisp,
+                         data=dat_sub_no_hisp,
                          weights=mortwt_f,
                          maxit=1000,
                          trace=FALSE)$ipw.weights,
@@ -1694,7 +1676,7 @@ love.plot(covs,
   scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
 
 ##### Subdivided 
 
@@ -1716,7 +1698,7 @@ love.plot(covs,
   scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
 
 #### Survival 
 
@@ -1740,21 +1722,21 @@ binded_sub <- survdiffed_sub(datted=kapped_sub)
 plotted(datted=kapped_over, 
         grpd="Workers undivided", 
         grps=170) + 
-  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.18))) +
 plotted(datted=kapped_sub, 
-        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mans", 34), rep("WC", 34), rep("Servs", 34), 
-                         rep("BC/farm", 34), rep("Unemps", 34), rep("NLFs", 34)), 
-                       levels=c("IBOs", "UBOs", "Mans", "WC", "BC/farm", "Servs", "Unemps", "NLFs")),
+        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mans", 34), rep("WCs", 34), rep("Servs", 34), 
+                         rep("BC/farms", 34), rep("Unemps", 34), rep("NLFs", 34)), 
+                       levels=c("IBOs", "UBOs", "Mans", "WCs", "BC/farms", "Servs", "Unemps", "NLFs")),
         grpd="Workers subdivided",
         grps=272, 
         repped=8,
-        dummied=c("IBOs", "UBOs", "Mans", "WC", "Servs", "BC/farm", "Unemps", "NLFs"),
+        dummied=c("IBOs", "UBOs", "Mans", "WCs", "Servs", "BC/farms", "Unemps", "NLFs"),
         val=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) + 
-  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.18))) +
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-18-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-18-1.png)<!-- -->
 
 ```r
 ggsave("overall_subdivided.png", dpi=600, height=4, width=8.75)
@@ -1945,7 +1927,7 @@ dat_sub_no_hisp %>%
                               link="logit",
                               numerator=~1,
                               denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5) + educ + marital_tri + region + race_h, 
-                              data = dat_sub_no_hisp,
+                              data=dat_sub_no_hisp,
                               weights=mortwt_f,
                               trace=FALSE,
                               maxit=1000,
@@ -1970,7 +1952,7 @@ dat_sub_no_hisp %>%
                          link="logit",
                          numerator=~1,
                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5) + educ + marital_tri + region + race_h, 
-                         data = dat_sub_no_hisp,
+                         data=dat_sub_no_hisp,
                          weights=mortwt_f,
                          trace=FALSE,
                          maxit=1000,
@@ -2008,7 +1990,7 @@ love.plot(covs,
                                 "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-22-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-22-1.png)<!-- -->
 
 ##### Subdivided 
 
@@ -2031,7 +2013,7 @@ love.plot(covs,
                                 "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-23-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-23-1.png)<!-- -->
 
 #### Survival 
 
@@ -2070,7 +2052,7 @@ plotted(datted=kapped_sub,
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-25-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-25-1.png)<!-- -->
 
 ```r
 ggsave("overall_subdivided_adj.png", dpi=600, height=4, width=8.75)
@@ -2262,7 +2244,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
-                     data = subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
@@ -2287,7 +2269,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
-                     data = subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
@@ -2335,7 +2317,7 @@ plotted(datted=kapped_late,
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-30-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-30-1.png)<!-- -->
 
 ```r
 ggsave("change_over_time.png", dpi=600, height=4, width=8.75)
@@ -2497,7 +2479,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3) + educ + marital_tri + region + race_h, 
-                     data = subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
                      weights=mortwt_f,
                      trace=FALSE,
                      maxit=1000,
@@ -2523,7 +2505,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3) + educ + marital_tri + region + race_h, 
-                     data = subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
                      weights=mortwt_f,
                      trace=FALSE,
                      maxit=1000,
@@ -2573,7 +2555,7 @@ plotted(datted=kapped_late,
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-35-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-35-1.png)<!-- -->
 
 ```r
 ggsave("change_over_time_adj.png", dpi=600, height=4, width=8.75)
@@ -2732,7 +2714,7 @@ dat_sub_no_hisp %>%
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
-                          data = dat_sub_no_hisp,
+                          data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           maxit=1000,
                           trace=FALSE)$ipw.weights,
@@ -2757,7 +2739,7 @@ dat_sub_no_hisp %>%
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
-                          data = dat_sub_no_hisp,
+                          data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           maxit=1000,
                           trace=FALSE)$ipw.weights,
@@ -2792,11 +2774,11 @@ binded_race <- survdiffed_group(kapped_race)
 ```r
 plotted_group(kapped_gend, grpd1="Men", grpd2="Women", bottom=0.40) +
   theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
-plotted_group(kapped_race, grpd1="NH white", grpd2="NH Black, Hispanic, and NH other", bottom=0.40) +
+plotted_group(kapped_race, grpd1="NH white", grpd2="NH Black, Hispanic, or NH other", bottom=0.40) +
   plot_layout(ncol=1)
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-40-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-40-1.png)<!-- -->
 
 ```r
 ggsave("gender_race_survival.png", dpi=600, height=7.5, width=8.75)
@@ -3207,7 +3189,7 @@ binded_educ <- survdiffed_group(kapped_educ)
 plotted_group(kapped_educ, grpd1=">HS", grpd2="\u2264HS", levelled=c("\u2264HS", ">HS"))
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-44-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-44-1.png)<!-- -->
 
 ```r
 ggsave("educ_survival.png", dpi=600, height=4, width=8.75)
@@ -3411,7 +3393,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                     data = subset(dat_sub_no_hisp, age<45),
+                     data=subset(dat_sub_no_hisp, age<45),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
@@ -3436,7 +3418,7 @@ dat_sub_no_hisp %>%
                      link="logit",
                      numerator=~1,
                      denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                     data = subset(dat_sub_no_hisp, age>=45),
+                     data=subset(dat_sub_no_hisp, age>=45),
                      weights=mortwt_f,
                      maxit=1000,
                      trace=FALSE)$ipw.weights,
@@ -3474,7 +3456,7 @@ plotted(datted=kapped_old, grpd="45-64", bottom=0.2) +
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 ```
 
-![](analysis_8_4_22_files/figure-html/unnamed-chunk-49-1.png)<!-- -->
+![](analysis_8_23_22_files/figure-html/unnamed-chunk-49-1.png)<!-- -->
 
 ```r
 ggsave("age_survival.png", dpi=600, height=4, width=8.75)
@@ -3843,7 +3825,7 @@ dat_sub %>%
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                          data = subset(dat_sub, !is.na(class) & !is.na(age)),
+                          data=subset(dat_sub, !is.na(class) & !is.na(age)),
                           weights=mortwt_f,
                           maxit=1000,
                           trace=FALSE)$ipw.weights,
@@ -3930,6 +3912,110 @@ tidy_n(modded=mod_hisp, bind=binded_hisp)
    <td style="text-align:right;"> -18.9 </td>
    <td style="text-align:right;"> -20.5 </td>
    <td style="text-align:right;"> -17.4 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
+
+### Excluding NHIS sampling weights from analyses 
+
+Similar to primary analyses, but somewhat attenuated.
+
+#### Distribution of IPW
+
+
+```r
+dat_sub_no_hisp %>%
+  mutate(sw_over_excl=ipwpoint(exposure=class,
+                               family="multinomial",
+                               link="logit",
+                               numerator=~1,
+                               denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                               data=dat_sub_no_hisp,
+                               trace=FALSE,
+                               maxit=1000)$ipw.weights)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_over_excl)
+```
+
+```
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##  0.3267  0.8390  0.9430  0.9967  1.0498  6.6870
+```
+
+
+```r
+kapped_over_excl <- survfit(Surv(time,dead)~class, robust=T, w=sw_over_excl, data=dat_sub_no_hisp, se=T)
+mod_over_excl <- coxph(Surv(time,dead)~class, robust=T, w=sw_over_excl, data=dat_sub_no_hisp)
+binded_over_excl <- survdiffed(datted=kapped_over_excl)
+```
+
+#### IPW survival differences and hazard ratios
+
+
+```r
+tidy_n(modded=mod_over_excl, bind=binded_over_excl)
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: IBOs</caption>
+ <thead>
+<tr>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">HR</div></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">SD per 100 at end of f/u</div></th>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+</tr>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> SD </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> classUBOs </td>
+   <td style="text-align:right;"> 1.23 </td>
+   <td style="text-align:right;"> 1.17 </td>
+   <td style="text-align:right;"> 1.29 </td>
+   <td style="text-align:right;"> -5.6 </td>
+   <td style="text-align:right;"> -7.3 </td>
+   <td style="text-align:right;"> -3.8 </td>
+   <td style="text-align:right;"> 911850 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classMans </td>
+   <td style="text-align:right;"> 1.01 </td>
+   <td style="text-align:right;"> 0.97 </td>
+   <td style="text-align:right;"> 1.06 </td>
+   <td style="text-align:right;"> -1.1 </td>
+   <td style="text-align:right;"> -2.8 </td>
+   <td style="text-align:right;"> 0.6 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classWrks </td>
+   <td style="text-align:right;"> 1.28 </td>
+   <td style="text-align:right;"> 1.23 </td>
+   <td style="text-align:right;"> 1.34 </td>
+   <td style="text-align:right;"> -6.5 </td>
+   <td style="text-align:right;"> -8.1 </td>
+   <td style="text-align:right;"> -5.0 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classNLFs </td>
+   <td style="text-align:right;"> 2.27 </td>
+   <td style="text-align:right;"> 2.17 </td>
+   <td style="text-align:right;"> 2.38 </td>
+   <td style="text-align:right;"> -18.6 </td>
+   <td style="text-align:right;"> -20.2 </td>
+   <td style="text-align:right;"> -17.0 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
@@ -4376,6 +4462,811 @@ tidy_n(modded=mod_ceo, bind=binded_ceo)
 </tbody>
 </table>
 
+# Confirming class variables are coded correctly
+
+
+```r
+kable(table(dat_sub_no_hisp$class, dat_sub_no_hisp$empstat), caption="Confirming that all unemployed (200-214) are workers and all NLF (220) are NLF") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Confirming that all unemployed (200-214) are workers and all NLF (220) are NLF</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 110 </th>
+   <th style="text-align:right;"> 111 </th>
+   <th style="text-align:right;"> 112 </th>
+   <th style="text-align:right;"> 120 </th>
+   <th style="text-align:right;"> 121 </th>
+   <th style="text-align:right;"> 122 </th>
+   <th style="text-align:right;"> 200 </th>
+   <th style="text-align:right;"> 211 </th>
+   <th style="text-align:right;"> 212 </th>
+   <th style="text-align:right;"> 213 </th>
+   <th style="text-align:right;"> 214 </th>
+   <th style="text-align:right;"> 220 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> IBOs </td>
+   <td style="text-align:right;"> 12350 </td>
+   <td style="text-align:right;"> 6237 </td>
+   <td style="text-align:right;"> 417 </td>
+   <td style="text-align:right;"> 248 </td>
+   <td style="text-align:right;"> 180 </td>
+   <td style="text-align:right;"> 5 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> UBOs </td>
+   <td style="text-align:right;"> 41068 </td>
+   <td style="text-align:right;"> 15440 </td>
+   <td style="text-align:right;"> 1716 </td>
+   <td style="text-align:right;"> 803 </td>
+   <td style="text-align:right;"> 1010 </td>
+   <td style="text-align:right;"> 58 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Mans </td>
+   <td style="text-align:right;"> 51167 </td>
+   <td style="text-align:right;"> 32370 </td>
+   <td style="text-align:right;"> 93 </td>
+   <td style="text-align:right;"> 1041 </td>
+   <td style="text-align:right;"> 601 </td>
+   <td style="text-align:right;"> 21 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Wrks </td>
+   <td style="text-align:right;"> 311123 </td>
+   <td style="text-align:right;"> 186940 </td>
+   <td style="text-align:right;"> 567 </td>
+   <td style="text-align:right;"> 8041 </td>
+   <td style="text-align:right;"> 6261 </td>
+   <td style="text-align:right;"> 214 </td>
+   <td style="text-align:right;"> 16083 </td>
+   <td style="text-align:right;"> 1232 </td>
+   <td style="text-align:right;"> 95 </td>
+   <td style="text-align:right;"> 3493 </td>
+   <td style="text-align:right;"> 13789 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NLFs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 199187 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(dat_sub_no_hisp$class, dat_sub_no_hisp$managers), caption="Class by manager: 1=managers") %>%
+  kable_styling("striped") 
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Class by manager: 1=managers</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 0 </th>
+   <th style="text-align:right;"> 1 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> IBOs </td>
+   <td style="text-align:right;"> 12319 </td>
+   <td style="text-align:right;"> 7028 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> UBOs </td>
+   <td style="text-align:right;"> 49415 </td>
+   <td style="text-align:right;"> 10246 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Mans </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 85293 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Wrks </td>
+   <td style="text-align:right;"> 543859 </td>
+   <td style="text-align:right;"> 2710 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NLFs </td>
+   <td style="text-align:right;"> 193453 </td>
+   <td style="text-align:right;"> 4596 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, managers==1)$class, subset(dat_sub_no_hisp, managers==1)$empstat), caption="Confirming that all workers and NLFs who have 'managers==1' are either unemp or NLF") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Confirming that all workers and NLFs who have 'managers==1' are either unemp or NLF</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 110 </th>
+   <th style="text-align:right;"> 111 </th>
+   <th style="text-align:right;"> 112 </th>
+   <th style="text-align:right;"> 120 </th>
+   <th style="text-align:right;"> 121 </th>
+   <th style="text-align:right;"> 122 </th>
+   <th style="text-align:right;"> 200 </th>
+   <th style="text-align:right;"> 211 </th>
+   <th style="text-align:right;"> 212 </th>
+   <th style="text-align:right;"> 213 </th>
+   <th style="text-align:right;"> 214 </th>
+   <th style="text-align:right;"> 220 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> IBOs </td>
+   <td style="text-align:right;"> 4806 </td>
+   <td style="text-align:right;"> 1923 </td>
+   <td style="text-align:right;"> 140 </td>
+   <td style="text-align:right;"> 86 </td>
+   <td style="text-align:right;"> 73 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> UBOs </td>
+   <td style="text-align:right;"> 7293 </td>
+   <td style="text-align:right;"> 2212 </td>
+   <td style="text-align:right;"> 440 </td>
+   <td style="text-align:right;"> 122 </td>
+   <td style="text-align:right;"> 170 </td>
+   <td style="text-align:right;"> 9 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Mans </td>
+   <td style="text-align:right;"> 51167 </td>
+   <td style="text-align:right;"> 32370 </td>
+   <td style="text-align:right;"> 93 </td>
+   <td style="text-align:right;"> 1041 </td>
+   <td style="text-align:right;"> 601 </td>
+   <td style="text-align:right;"> 21 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Wrks </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 1259 </td>
+   <td style="text-align:right;"> 50 </td>
+   <td style="text-align:right;"> 11 </td>
+   <td style="text-align:right;"> 363 </td>
+   <td style="text-align:right;"> 1027 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NLFs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 4596 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, managers==1 & year<2001)$class, subset(dat_sub_no_hisp, managers==1 & year<2001)$classwk), 
+      caption="1986-1996: confirming that all IBOs and UBOs who have 'managers==1' are self-employed") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>1986-1996: confirming that all IBOs and UBOs who have 'managers==1' are self-employed</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 20 </th>
+   <th style="text-align:right;"> 31 </th>
+   <th style="text-align:right;"> 33 </th>
+   <th style="text-align:right;"> 34 </th>
+   <th style="text-align:right;"> 41 </th>
+   <th style="text-align:right;"> 42 </th>
+   <th style="text-align:right;"> 50 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> IBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 4879 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> UBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 7392 </td>
+   <td style="text-align:right;"> 80 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Mans </td>
+   <td style="text-align:right;"> 41858 </td>
+   <td style="text-align:right;"> 2881 </td>
+   <td style="text-align:right;"> 3089 </td>
+   <td style="text-align:right;"> 3961 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Wrks </td>
+   <td style="text-align:right;"> 1079 </td>
+   <td style="text-align:right;"> 52 </td>
+   <td style="text-align:right;"> 43 </td>
+   <td style="text-align:right;"> 66 </td>
+   <td style="text-align:right;"> 66 </td>
+   <td style="text-align:right;"> 137 </td>
+   <td style="text-align:right;"> 4 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NLFs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, managers==1 & year>=2001)$class, subset(dat_sub_no_hisp, managers==1 & year>=2001)$classwk2), 
+      caption="2001-2018: confirming that all IBOs and UBOs who have 'managers==1' are self-employed") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>2001-2018: confirming that all IBOs and UBOs who have 'managers==1' are self-employed</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 1 </th>
+   <th style="text-align:right;"> 2 </th>
+   <th style="text-align:right;"> 3 </th>
+   <th style="text-align:right;"> 4 </th>
+   <th style="text-align:right;"> 5 </th>
+   <th style="text-align:right;"> 6 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> IBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 2149 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> UBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 2663 </td>
+   <td style="text-align:right;"> 111 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Mans </td>
+   <td style="text-align:right;"> 28195 </td>
+   <td style="text-align:right;"> 1486 </td>
+   <td style="text-align:right;"> 2057 </td>
+   <td style="text-align:right;"> 1766 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Wrks </td>
+   <td style="text-align:right;"> 1069 </td>
+   <td style="text-align:right;"> 31 </td>
+   <td style="text-align:right;"> 33 </td>
+   <td style="text-align:right;"> 23 </td>
+   <td style="text-align:right;"> 95 </td>
+   <td style="text-align:right;"> 3 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NLFs </td>
+   <td style="text-align:right;"> 3199 </td>
+   <td style="text-align:right;"> 318 </td>
+   <td style="text-align:right;"> 339 </td>
+   <td style="text-align:right;"> 262 </td>
+   <td style="text-align:right;"> 457 </td>
+   <td style="text-align:right;"> 10 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, year<2001)$class, subset(dat_sub_no_hisp, year<2001)$classwk), caption="1986-1996: class by classwk; all 41 are IBO/wrk and 42-50 are UBO/wrk") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>1986-1996: class by classwk; all 41 are IBO/wrk and 42-50 are UBO/wrk</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 11 </th>
+   <th style="text-align:right;"> 12 </th>
+   <th style="text-align:right;"> 20 </th>
+   <th style="text-align:right;"> 31 </th>
+   <th style="text-align:right;"> 33 </th>
+   <th style="text-align:right;"> 34 </th>
+   <th style="text-align:right;"> 41 </th>
+   <th style="text-align:right;"> 42 </th>
+   <th style="text-align:right;"> 50 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> IBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 12535 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> UBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 41362 </td>
+   <td style="text-align:right;"> 774 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Mans </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 41858 </td>
+   <td style="text-align:right;"> 2881 </td>
+   <td style="text-align:right;"> 3089 </td>
+   <td style="text-align:right;"> 3961 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Wrks </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 216 </td>
+   <td style="text-align:right;"> 270685 </td>
+   <td style="text-align:right;"> 11440 </td>
+   <td style="text-align:right;"> 16426 </td>
+   <td style="text-align:right;"> 35591 </td>
+   <td style="text-align:right;"> 147 </td>
+   <td style="text-align:right;"> 917 </td>
+   <td style="text-align:right;"> 23 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NLFs </td>
+   <td style="text-align:right;"> 121535 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, year<2001 & class=="Wrks")$classwk, subset(dat_sub_no_hisp, year<2001 & class=="Wrks")$empstat), 
+            caption="1986-1996: confirming that all workers who have classwk==41-50 are unemployed (211-214)") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>1986-1996: confirming that all workers who have classwk==41-50 are unemployed (211-214)</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 110 </th>
+   <th style="text-align:right;"> 121 </th>
+   <th style="text-align:right;"> 122 </th>
+   <th style="text-align:right;"> 211 </th>
+   <th style="text-align:right;"> 212 </th>
+   <th style="text-align:right;"> 213 </th>
+   <th style="text-align:right;"> 214 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> 12 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 216 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 20 </td>
+   <td style="text-align:right;"> 251941 </td>
+   <td style="text-align:right;"> 4281 </td>
+   <td style="text-align:right;"> 188 </td>
+   <td style="text-align:right;"> 1004 </td>
+   <td style="text-align:right;"> 66 </td>
+   <td style="text-align:right;"> 1825 </td>
+   <td style="text-align:right;"> 11380 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 31 </td>
+   <td style="text-align:right;"> 10839 </td>
+   <td style="text-align:right;"> 182 </td>
+   <td style="text-align:right;"> 6 </td>
+   <td style="text-align:right;"> 23 </td>
+   <td style="text-align:right;"> 2 </td>
+   <td style="text-align:right;"> 68 </td>
+   <td style="text-align:right;"> 320 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 33 </td>
+   <td style="text-align:right;"> 15535 </td>
+   <td style="text-align:right;"> 370 </td>
+   <td style="text-align:right;"> 6 </td>
+   <td style="text-align:right;"> 34 </td>
+   <td style="text-align:right;"> 3 </td>
+   <td style="text-align:right;"> 194 </td>
+   <td style="text-align:right;"> 284 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 34 </td>
+   <td style="text-align:right;"> 32808 </td>
+   <td style="text-align:right;"> 1428 </td>
+   <td style="text-align:right;"> 14 </td>
+   <td style="text-align:right;"> 105 </td>
+   <td style="text-align:right;"> 9 </td>
+   <td style="text-align:right;"> 698 </td>
+   <td style="text-align:right;"> 529 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 41 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 3 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 88 </td>
+   <td style="text-align:right;"> 56 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 42 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 49 </td>
+   <td style="text-align:right;"> 12 </td>
+   <td style="text-align:right;"> 451 </td>
+   <td style="text-align:right;"> 405 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 50 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 1 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 13 </td>
+   <td style="text-align:right;"> 9 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, year>=2001)$class, subset(dat_sub_no_hisp, year>=2001)$classwk2), caption="2001-2018: class by classwk; all 5-6 are IBO/UBO/wrk/NLF") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>2001-2018: class by classwk; all 5-6 are IBO/UBO/wrk/NLF</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 0 </th>
+   <th style="text-align:right;"> 1 </th>
+   <th style="text-align:right;"> 2 </th>
+   <th style="text-align:right;"> 3 </th>
+   <th style="text-align:right;"> 4 </th>
+   <th style="text-align:right;"> 5 </th>
+   <th style="text-align:right;"> 6 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> IBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 6902 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> UBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 17210 </td>
+   <td style="text-align:right;"> 749 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Mans </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 28195 </td>
+   <td style="text-align:right;"> 1486 </td>
+   <td style="text-align:right;"> 2057 </td>
+   <td style="text-align:right;"> 1766 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Wrks </td>
+   <td style="text-align:right;"> 761 </td>
+   <td style="text-align:right;"> 170058 </td>
+   <td style="text-align:right;"> 6602 </td>
+   <td style="text-align:right;"> 15298 </td>
+   <td style="text-align:right;"> 18037 </td>
+   <td style="text-align:right;"> 768 </td>
+   <td style="text-align:right;"> 23 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NLFs </td>
+   <td style="text-align:right;"> 12600 </td>
+   <td style="text-align:right;"> 49037 </td>
+   <td style="text-align:right;"> 2962 </td>
+   <td style="text-align:right;"> 4148 </td>
+   <td style="text-align:right;"> 4587 </td>
+   <td style="text-align:right;"> 3658 </td>
+   <td style="text-align:right;"> 112 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="Wrks")$classwk2, subset(dat_sub_no_hisp, year>=2001 & class=="Wrks")$empstat), 
+            caption="2001-2018: confirming that all workers who have classwk==5-6 are unemployed (200)") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>2001-2018: confirming that all workers who have classwk==5-6 are unemployed (200)</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 111 </th>
+   <th style="text-align:right;"> 112 </th>
+   <th style="text-align:right;"> 120 </th>
+   <th style="text-align:right;"> 200 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 761 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 1 </td>
+   <td style="text-align:right;"> 151033 </td>
+   <td style="text-align:right;"> 494 </td>
+   <td style="text-align:right;"> 5411 </td>
+   <td style="text-align:right;"> 13120 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 2 </td>
+   <td style="text-align:right;"> 5985 </td>
+   <td style="text-align:right;"> 11 </td>
+   <td style="text-align:right;"> 277 </td>
+   <td style="text-align:right;"> 329 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 3 </td>
+   <td style="text-align:right;"> 13816 </td>
+   <td style="text-align:right;"> 29 </td>
+   <td style="text-align:right;"> 958 </td>
+   <td style="text-align:right;"> 495 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 4 </td>
+   <td style="text-align:right;"> 16106 </td>
+   <td style="text-align:right;"> 33 </td>
+   <td style="text-align:right;"> 1395 </td>
+   <td style="text-align:right;"> 503 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 5 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 768 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 6 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 23 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="IBOs" | class=="UBOs")$class, subset(dat_sub_no_hisp, year>=2001 & class=="IBOs" | class=="UBOs")$jobsecincorp), 
+            caption="2001-2018: confirming that all self-employed (classwk2 5-6) with jobsecincorp==2 are IBO and jobsecincorp==1 or 0 are UBO)") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>2001-2018: confirming that all self-employed (classwk2 5-6) with jobsecincorp==2 are IBO and jobsecincorp==1 or 0 are UBO)</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 0 </th>
+   <th style="text-align:right;"> 1 </th>
+   <th style="text-align:right;"> 2 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> IBOs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 6902 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> UBOs </td>
+   <td style="text-align:right;"> 749 </td>
+   <td style="text-align:right;"> 17210 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Mans </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Wrks </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NLFs </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="UBOs")$classwk2, subset(dat_sub_no_hisp, year>=2001 & class=="UBOs")$jobsecincorp), 
+            caption="2001-2018: confirming that all UBOs with jobsecincorp==0 have classwk2==6 (working w/o pay in family bus/farm)") %>%
+  kable_styling("striped")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>2001-2018: confirming that all UBOs with jobsecincorp==0 have classwk2==6 (working w/o pay in family bus/farm)</caption>
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> 0 </th>
+   <th style="text-align:right;"> 1 </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> 5 </td>
+   <td style="text-align:right;"> 0 </td>
+   <td style="text-align:right;"> 17210 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> 6 </td>
+   <td style="text-align:right;"> 749 </td>
+   <td style="text-align:right;"> 0 </td>
+  </tr>
+</tbody>
+</table>
+
 # Session info
 
 
@@ -4410,11 +5301,11 @@ sessionInfo()
 ## [16] survey_4.0             Matrix_1.3-3           Rcpp_1.0.7            
 ## [19] broom_0.7.6            rms_6.2-0              SparseM_1.81          
 ## [22] Hmisc_4.5-0            ggplot2_3.3.3          Formula_1.2-4         
-## [25] lattice_0.20-44        survival_3.2-11        here_1.0.1            
+## [25] lattice_0.20-44        survival_3.4-0         here_1.0.1            
 ## [28] data.table_1.14.0      dplyr_1.0.6           
 ## 
 ## loaded via a namespace (and not attached):
-##   [1] readxl_1.3.1        backports_1.2.1     systemfonts_1.0.2  
+##   [1] readxl_1.3.1        backports_1.4.1     systemfonts_1.0.2  
 ##   [4] plyr_1.8.6          lazyeval_0.2.2      splines_4.1.0      
 ##   [7] digest_0.6.27       htmltools_0.5.2     productplots_0.1.1 
 ##  [10] fansi_0.4.2         magrittr_2.0.1      checkmate_2.0.0    
