@@ -1,6 +1,6 @@
 ---
 title: "Dead labor: classed, gendered, and racialized mortality inequities in the United States"
-author: "Jerzy Eisenberg-Guyot"
+author: "-"
 date: "`r format(Sys.time(), '%B %Y')`"
 output: 
   html_document:
@@ -18,7 +18,7 @@ always_allow_html: true
 * Coding of classes:
   + Incorporated business owners (IBOs, loosely analogous to capitalists) are those who are self-employed in an incorporated business
   + Unincorporated business owners (UBOs, loosely analogous to the petit bourgeoisie) are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few people in the latter)
-  + Managers (mans) are those who are not self-employed but who are employed and who have an "executive, administrative, or managerial" occupation
+  + Managers (mgrs) are those who are not self-employed but who are employed and who have an "executive, administrative, or managerial" occupation
   + Workers (wrks) are those who are unemployed/"not employed" (few people) OR who are employed but do not have a management occupation
   + Not in the labor force (NLFs) are those who are "not in the labor force" 
 <br>
@@ -34,7 +34,7 @@ always_allow_html: true
     - https://www.census.gov/content/dam/Census/library/working-papers/2018/demo/SEHSD-WP2018-28.pdf
 <br>
 * General notes:
-  + Don't think it makes sense to incorporate  income into the regression analyses (e.g., mediation), even just as a sensitivity analysis. The 'decent' income data is only available from 1997-2018, and even that data is categorical and top-coded. Moreover, the top-coding changed over time (75k from 1997-2006; 100k from 2007-2008; and 115k from 2009-2018). Thus, unless we extrapolated or imputed beyond the top-codes, we'd have to use a categorical income variable with a max category of $75k+, which is well below the third quartile of family incomes after adjusting for inflation (and below IBOs' and mans' median incomes). The original income data also contains a lot of missingness, and NHIS recommends it be analyzed via imputation methods, which would complicate our approach considerably. 
+  + Don't think it makes sense to incorporate  income into the regression analyses (e.g., mediation), even just as a sensitivity analysis. The 'decent' income data is only available from 1997-2018, and even that data is categorical and top-coded. Moreover, the top-coding changed over time (75k from 1997-2006; 100k from 2007-2008; and 115k from 2009-2018). Thus, unless we extrapolated or imputed beyond the top-codes, we'd have to use a categorical income variable with a max category of $75k+, which is well below the third quartile of family incomes after adjusting for inflation (and below IBOs' and mgrs' median incomes). The original income data also contains a lot of missingness, and NHIS recommends it be analyzed via imputation methods, which would complicate our approach considerably. 
   + Too few respondents in minoritized racial/ethnic groups who are IBOs to break out minoritized racial/ethnic groups into finer subgroups (survival estimates very unstable)
   + Numemps (number of employees at work) only available from 2001-2018 - would be alternative way to classify business owners but I think its categories are too imprecise and limited availability is problematic
   + Can't identify "chief executives, general and operative managers, and legislators" until 2004 because of limited occupation data before then (can never identify "chief executives" alone, who we've classified as IBOs in the past)
@@ -74,7 +74,7 @@ options(scipen=999)
 options(knitr.kable.NA = '')
 
 #load ipums data
-dat <- fread(here('nhis_ndi_1986_2018_ipums.csv'))
+dat <- fread(here('ipums_dat_1986_2018.csv'))
 
 #make all variable names lowercase
 #sort data by nhispid to keep results consistent across runs, as output from ipw package is (very minorly) affected by observation order
@@ -141,62 +141,62 @@ dat_sub %>%
          managers=ifelse(occ1995>=102 & occ1995<=104, 1, 0),
          class=factor(ifelse(empstat==220, "NLFs",
                              ifelse((empstat>=200 & empstat<=214) | (year<2001 & classwk>=20 & classwk<=34 & managers!=1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers!=1), "Wrks",
-                                    ifelse((year<2001 & classwk>=20 & classwk<=34 & managers==1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers==1), "Mans",
+                                    ifelse((year<2001 & classwk>=20 & classwk<=34 & managers==1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers==1), "Mgrs",
                                            ifelse((year<2001 & classwk==41) | (year>=2001 & classwk2==5 & jobsecincorp==2), "IBOs",
                                                   ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "UBOs", NA))))), 
-                     levels=c("IBOs", "UBOs", "Mans", "Wrks", "NLFs")),
+                     levels=c("IBOs", "UBOs", "Mgrs", "Wrks", "NLFs")),
          class_gender=factor(ifelse(class=="Wrks" & sex=="male", "Male wrks",
                                     ifelse(class=="Wrks" & sex=="female", "Female wrks",
-                                           ifelse(class=="Mans" & sex=="male", "Male mans",
-                                                  ifelse(class=="Mans" & sex=="female", "Female mans",
+                                           ifelse(class=="Mgrs" & sex=="male", "Male mgrs",
+                                                  ifelse(class=="Mgrs" & sex=="female", "Female mgrs",
                                                          ifelse(class=="UBOs" & sex=="male", "Male UBOs",
                                                                 ifelse(class=="UBOs" & sex=="female", "Female UBOs",
                                                                        ifelse(class=="IBOs" & sex=="male", "Male IBOs",
                                                                               ifelse(class=="IBOs" & sex=="female", "Female IBOs",
                                                                                      ifelse(class=="NLFs" & sex=="male", "Male NLFs",
                                                                                             ifelse(class=="NLFs" & sex=="female", "Female NLFs", NA)))))))))),
-                             levels=c("Male IBOs", "Male UBOs", "Male mans", "Male wrks", "Male NLFs",
-                                      "Female IBOs", "Female UBOs", "Female mans", "Female wrks", "Female NLFs")),
+                             levels=c("Male IBOs", "Male UBOs", "Male mgrs", "Male wrks", "Male NLFs",
+                                      "Female IBOs", "Female UBOs", "Female mgrs", "Female wrks", "Female NLFs")),
          class_poc=factor(ifelse(class=="Wrks" & poc=="NH white", "NH white wrks",
                                  ifelse(class=="Wrks" & poc=="POC", "POC wrks",
-                                        ifelse(class=="Mans" & poc=="NH white", "NH white mans",
-                                               ifelse(class=="Mans" & poc=="POC", "POC mans",
+                                        ifelse(class=="Mgrs" & poc=="NH white", "NH white mgrs",
+                                               ifelse(class=="Mgrs" & poc=="POC", "POC mgrs",
                                                       ifelse(class=="UBOs" & poc=="NH white", "NH white UBOs",
                                                              ifelse(class=="UBOs" & poc=="POC", "POC UBOs",
                                                                     ifelse(class=="IBOs" & poc=="NH white", "NH white IBOs",
                                                                            ifelse(class=="IBOs" & poc=="POC", "POC IBOs", 
                                                                                   ifelse(class=="NLFs" & poc=="NH white", "NH white NLFs", 
                                                                                          ifelse(class=="NLFs" & poc=="POC", "POC NLFs", NA)))))))))),
-                          levels=c("NH white IBOs", "NH white UBOs", "NH white mans", "NH white wrks", "NH white NLFs",
-                                   "POC IBOs", "POC UBOs", "POC mans", "POC wrks", "POC NLFs")),
+                          levels=c("NH white IBOs", "NH white UBOs", "NH white mgrs", "NH white wrks", "NH white NLFs",
+                                   "POC IBOs", "POC UBOs", "POC mgrs", "POC wrks", "POC NLFs")),
          class_educ=factor(ifelse(class=="Wrks" & (educ=="<HS" | educ=="HS"), "\u2264HS wrks",
                                  ifelse(class=="Wrks" & (educ=="Some college" | educ=="College+"), ">HS wrks",
-                                        ifelse(class=="Mans" & (educ=="<HS" | educ=="HS"), "\u2264HS mans",
-                                               ifelse(class=="Mans" & (educ=="Some college" | educ=="College+"), ">HS mans",
+                                        ifelse(class=="Mgrs" & (educ=="<HS" | educ=="HS"), "\u2264HS mgrs",
+                                               ifelse(class=="Mgrs" & (educ=="Some college" | educ=="College+"), ">HS mgrs",
                                                       ifelse(class=="UBOs" & (educ=="<HS" | educ=="HS"), "\u2264HS UBOs",
                                                              ifelse(class=="UBOs" & (educ=="Some college" | educ=="College+"), ">HS UBOs",
                                                                     ifelse(class=="IBOs" & (educ=="<HS" | educ=="HS"), "\u2264HS IBOs",
                                                                            ifelse(class=="IBOs" & (educ=="Some college" | educ=="College+"), ">HS IBOs", 
                                                                                   ifelse(class=="NLFs" & (educ=="<HS" | educ=="HS"), "\u2264HS NLFs", 
                                                                                          ifelse(class=="NLFs" & (educ=="Some college" | educ=="College+"), ">HS NLFs", NA)))))))))),
-                          levels=c(">HS IBOs", ">HS UBOs", ">HS mans", ">HS wrks", ">HS NLFs",
-                                   "\u2264HS IBOs", "\u2264HS UBOs", "\u2264HS mans", "\u2264HS wrks", "\u2264HS NLFs")),
+                          levels=c(">HS IBOs", ">HS UBOs", ">HS mgrs", ">HS wrks", ">HS NLFs",
+                                   "\u2264HS IBOs", "\u2264HS UBOs", "\u2264HS mgrs", "\u2264HS wrks", "\u2264HS NLFs")),
          class_sens=factor(ifelse(year<2001 | year>2003, NA, #identical to primary class variable (in 2002, both approaches to measuring business ownership with classwk/classwk2/etc overlapped)
                                   ifelse(empstat==220, "NLFs",
                                          ifelse((empstat>=200 & empstat<=214) | (classwk>=20 & classwk<=34 & managers!=1), "Wrks",
-                                                ifelse((classwk>=20 & classwk<=34 & managers==1), "Mans",
+                                                ifelse((classwk>=20 & classwk<=34 & managers==1), "Mgrs",
                                                        ifelse(classwk==40 & jobsecincorp==2, "IBOs",
                                                               ifelse((classwk==40 & jobsecincorp==1) | classwk==50, "UBOs", NA)))))), 
-                          levels=c("IBOs", "UBOs", "Mans", "Wrks", "NLFs")),
+                          levels=c("IBOs", "UBOs", "Mgrs", "Wrks", "NLFs")),
          class_occ=factor(ifelse(empstat==220, "NLFs",
                                  ifelse(empstat>=200 & empstat<=214, "Unemps",
-                                        ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=900) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=900), "Blue collar/farm",
+                                        ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=900) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=900), "Blue collar",
                                                ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=600 & occ1995<900) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=600 & occ1995<900), "Services",
                                                       ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=200 & occ1995<600) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=200 & occ1995<600), "White collar",
-                                                             ifelse((year<2001 & classwk>=20 & classwk<=34 & managers==1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers==1), "Mans",
+                                                             ifelse((year<2001 & classwk>=20 & classwk<=34 & managers==1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers==1), "Mgrs",
                                                                     ifelse((year<2001 & classwk==41) | (year>=2001 & classwk2==5 & jobsecincorp==2), "IBOs",
                                                                            ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "UBOs", NA)))))))), 
-                     levels=c("IBOs", "UBOs", "Mans", "White collar", "Services", "Blue collar/farm", "Unemps", "NLFs"))) -> dat_sub
+                     levels=c("IBOs", "UBOs", "Mgrs", "White collar", "Services", "Blue collar", "Unemps", "NLFs"))) -> dat_sub
 
 #make dataset without hispanic oversample for main analyses
 dat_sub %>%
@@ -290,7 +290,6 @@ ggplot(data=dat_sub_no_hisp) +
 ggsave('mosaic.png', dpi=600, height=5, width=10)
 ```
 
-
 ## Proportions in classes over time 
 
 Using interview year rather than survey-wave year. Excluded 2019 because <50 respondents interviewed in 2019.
@@ -374,11 +373,11 @@ kable(x[3:5,], col.names=c("Working for pay", "Working w/o pay", "With job, but 
 #plotting function
 plotted <- function(datted, 
                     classed_repped=34,
-                    classed=c(rep("IBOs", classed_repped), rep("UBOs", classed_repped), rep("Mans", classed_repped), rep("Wrks", classed_repped), rep("NLFs", classed_repped)),
+                    classed=c(rep("IBOs", classed_repped), rep("UBOs", classed_repped), rep("Mgrs", classed_repped), rep("Wrks", classed_repped), rep("NLFs", classed_repped)),
                     repped=5,
                     grpd, 
                     grps, 
-                    dummied=c("IBOs", "UBOs", "Mans", "Wrks", "NLFs"),
+                    dummied=c("IBOs", "UBOs", "Mgrs", "Wrks", "NLFs"),
                     cexed=0.85,
                     vjusted=1,
                     val=brewer.pal(n = 12, name = "Paired")[c(2,4,6,8,10)], 
@@ -410,13 +409,13 @@ plotted <- function(datted,
 #group plotting function
 plotted_group <- function(datted, 
                     classed_repped=34,
-                    classed=rep(c(rep("IBOs", classed_repped), rep("UBOs", classed_repped), rep("Mans", classed_repped), rep("Wrks", classed_repped), rep("NLFs", classed_repped)), 2),
+                    classed=rep(c(rep("IBOs", classed_repped), rep("UBOs", classed_repped), rep("Mgrs", classed_repped), rep("Wrks", classed_repped), rep("NLFs", classed_repped)), 2),
                     repped=10,
                     grpd1, 
                     grps1=170, 
                     grpd2,
                     grps2=170,
-                    dummied=c("IBOs", "UBOs", "Mans", "Wrks", "NLFs"),
+                    dummied=c("IBOs", "UBOs", "Mgrs", "Wrks", "NLFs"),
                     levelled=c(grpd1, grpd2),
                     cexed=0.85,
                     vjusted=1,
@@ -621,11 +620,11 @@ within_group_ests <- function(datted,
   
   ######hrs
   hzds <- rbind(exp(confint(glht(modded, linfct=paste0("`", term1, " UBOs` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
-                exp(confint(glht(modded, linfct=paste0("`", term1, " mans` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
+                exp(confint(glht(modded, linfct=paste0("`", term1, " mgrs` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
                 exp(confint(glht(modded, linfct=paste0("`", term1, " wrks` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
                 exp(confint(glht(modded, linfct=paste0("`", term1, " NLFs` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]))
   
-  kable(data.frame(c("classUBOs", "classMans", "classWrks", "classNLFs"), hzds, sdiffs), digits=c(2,2,2,2,1,1,1), 
+  kable(data.frame(c("classUBOs", "classMgrs", "classWrks", "classNLFs"), hzds, sdiffs), digits=c(2,2,2,2,1,1,1), 
         caption=captioned, col.names=c(" ", "HR", "Lower", "Upper", "SD", "Lower", "Upper")) %>%
     kable_styling("striped") %>%
     add_header_above(c(" ", "HR"=3, "SD per 100 at end of f/u"=3))
@@ -635,18 +634,18 @@ within_group_ests <- function(datted,
 #class-by-year interaction function
 int_year_func <- function(modded){
   
-  ests <- data.frame(Class=c("classUBOs", "classUBOs", "classMans", "classMans", "classWrks", "classWrks", "classNLFs", "classNLFs"),
+  ests <- data.frame(Class=c("classUBOs", "classUBOs", "classMgrs", "classMgrs", "classWrks", "classWrks", "classNLFs", "classNLFs"),
                      Year=rep(c(1986, 2018),4),
                      HR=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
-                              contrast(modded, list(class='Mans', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
+                              contrast(modded, list(class='Mgrs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
                               contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
                               contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast)),
                      Lower=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
-                                 contrast(modded, list(class='Mans', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
+                                 contrast(modded, list(class='Mgrs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
                                  contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
                                  contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower)),
                      Upper=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
-                                 contrast(modded, list(class='Mans', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
+                                 contrast(modded, list(class='Mgrs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
                                  contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
                                  contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper)))
   
@@ -778,17 +777,17 @@ binded_sub <- survdiffed_sub(datted=kapped_sub)
 plotted(datted=kapped_over, 
         grpd="Workers undivided", 
         grps=170) + 
-  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.18))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
 plotted(datted=kapped_sub, 
-        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mans", 34), rep("WCs", 34), rep("Servs", 34), 
-                         rep("BC/farms", 34), rep("Unemps", 34), rep("NLFs", 34)), 
-                       levels=c("IBOs", "UBOs", "Mans", "WCs", "BC/farms", "Servs", "Unemps", "NLFs")),
+        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mgrs", 34), rep("WCs", 34), rep("Servs", 34), 
+                         rep("BCs", 34), rep("Unemps", 34), rep("NLFs", 34)), 
+                       levels=c("IBOs", "UBOs", "Mgrs", "WCs", "BCs", "Servs", "Unemps", "NLFs")),
         grpd="Workers subdivided",
         grps=272, 
         repped=8,
-        dummied=c("IBOs", "UBOs", "Mans", "WCs", "Servs", "BC/farms", "Unemps", "NLFs"),
+        dummied=c("IBOs", "UBOs", "Mgrs", "WCs", "Servs", "BCs", "Unemps", "NLFs"),
         val=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) + 
-  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.18))) +
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
 
 ggsave("overall_subdivided.png", dpi=600, height=4, width=8.75)
@@ -909,13 +908,13 @@ plotted(datted=kapped_over,
         grps=170) + 
   scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
 plotted(datted=kapped_sub, 
-        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mans", 34), rep("WC", 34), rep("Servs", 34), 
-                         rep("BC/farm", 34), rep("Unemps", 34), rep("NLFs", 34)), 
-                       levels=c("IBOs", "UBOs", "Mans", "WC", "Servs", "BC/farm", "Unemps", "NLFs")),
+        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mgrs", 34), rep("WCs", 34), rep("Servs", 34), 
+                         rep("BCs", 34), rep("Unemps", 34), rep("NLFs", 34)), 
+                       levels=c("IBOs", "UBOs", "Mgrs", "WCs", "Servs", "BCs", "Unemps", "NLFs")),
         grpd="Workers subdivided",
         grps=272, 
         repped=8,
-        dummied=c("IBOs", "UBOs", "Mans", "WC", "Servs", "BC/farm", "Unemps", "NLFs"),
+        dummied=c("IBOs", "UBOs", "Mgrs", "WCs", "Servs", "BCs", "Unemps", "NLFs"),
         vjusted=1.5,
         val=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) + 
   scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
