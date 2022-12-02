@@ -1,50 +1,27 @@
 ---
 title: "Dead labor: classed, gendered, and racialized mortality inequities in the United States"
-author: "-"
-date: "September 2022"
+author: "Jerzy Eisenberg-Guyot"
+date: "December 2022"
 output: 
   html_document:
     code_folding: hide
     toc: true
     toc_float: true
     keep_md: true
-    toc_depth: 5
+    toc_depth: 6
 always_allow_html: true
 ---
 
 * Overview: 
-  + Descriptive analyses of class and mortality in the cross-sectional 1986-2018 NHIS with mortality follow-up through the end of 2019. Survival curves and Cox models are minimally adjusted (age, gender, and year) using IPW unless otherwise noted.
+  + Descriptive analyses of class and mortality in the cross-sectional 1986-2018 NHIS with mortality follow-up through the end of 2019. 
 <br>
 * Coding of classes:
-  + Incorporated business owners (IBOs, loosely analogous to capitalists) are those who are self-employed in an incorporated business
-  + Unincorporated business owners (UBOs, loosely analogous to the petit bourgeoisie) are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few people in the latter)
-  + Managers (mgrs) are those who are not self-employed but who are employed and who have an "executive, administrative, or managerial" occupation
-  + Workers (wrks) are those who are unemployed/"not employed" (few people) OR who are employed but do not have a management occupation
+  + Incorporated business owners are those who are self-employed in an incorporated business
+  + Unincorporated business owners are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few in the latter)
+  + Managers (mgrs) are those who are not self-employed but who are employed and who have an executive, administrative, or managerial occupation
+  + Workers (wrks) are those who are unemployed/"not employed" OR who are employed but do not have an executive, administrative, or managerial occupation
   + Not in the labor force (NLFs) are those who are "not in the labor force" 
 <br>
-* Useful references regarding IBOs vs UBOs:
-  + Nuts and bolts: 
-    - https://smallbusiness.chron.com/difference-between-incorporated-unincorporated-businesses-57463.html
-    - https://www.upcounsel.com/is-an-llc-incorporated-or-unincorporated
-    - https://www.uschamber.com/co/start/strategy/sole-proprietorship-vs-incorporation
-    - https://portal.311.nyc.gov/article/?kanumber=KA-03067: states LLCs are unincorporated (also stated elsewhere online)
-  + Demographics: 
-    - https://www.pewresearch.org/social-trends/2015/10/22/three-in-ten-u-s-jobs-are-held-by-the-self-employed-and-the-workers-they-hire/
-    - https://www.bls.gov/opub/mlr/2010/09/art2full.pdf
-    - https://www.census.gov/content/dam/Census/library/working-papers/2018/demo/SEHSD-WP2018-28.pdf
-<br>
-* General notes:
-  + Don't think it makes sense to incorporate  income into the regression analyses (e.g., mediation), even just as a sensitivity analysis. The 'decent' income data is only available from 1997-2018, and even that data is categorical and top-coded. Moreover, the top-coding changed over time (75k from 1997-2006; 100k from 2007-2008; and 115k from 2009-2018). Thus, unless we extrapolated or imputed beyond the top-codes, we'd have to use a categorical income variable with a max category of $75k+, which is well below the third quartile of family incomes after adjusting for inflation (and below IBOs' and mgrs' median incomes). The original income data also contains a lot of missingness, and NHIS recommends it be analyzed via imputation methods, which would complicate our approach considerably. 
-  + Too few respondents in minoritized racial/ethnic groups who are IBOs to break out minoritized racial/ethnic groups into finer subgroups (survival estimates very unstable)
-  + Numemps (number of employees at work) only available from 2001-2018 - would be alternative way to classify business owners but I think its categories are too imprecise and limited availability is problematic
-  + Can't identify "chief executives, general and operative managers, and legislators" until 2004 because of limited occupation data before then (can never identify "chief executives" alone, who we've classified as IBOs in the past)
-  + Useful citation regarding occupation and mortality in NHIS: https://www.sciencedirect.com/science/article/pii/S0091743520301535 and http://paa2019.populationassociation.org/uploads/190718
-<br>
-* Methods notes: 
-  + Monitor release of vintage-specific weights  (https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486/12)
-  + When robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rather than frequency weights)
-  + Citations for IPW and survey weighting approach: https://www.ncbi.nlm.nih.gov/labs/pmc/articles/PMC5802372/ and https://journals.sagepub.com/doi/full/10.1177/0193841X20938497
-  
 
 
 
@@ -83,9 +60,9 @@ dat %>%
 
 #####exclusions
 #exclude those outside age ranges (age has 0.09% missing)
-#exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time); #note, from 2015-2018, only sample adult and sample child participants were eligible for mortality follow-up
+#exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time) #note, from 2015-2018, only sample adult and sample child participants were eligible for mortality follow-up
 #exclude 1997-2000, when there's no data on whether business is incorporated or not
-#we'll exclude 1992 Hispanic oversample (only 3517 additional respondents) (per advice of IPUMS) separately, as we want to include them in sensitivity analyses
+#exclude 1992 Hispanic oversample (only a few thousand respondents) (per advice of IPUMS) separately, as we want to include them in sensitivity analyses
 dat %>%
   filter((age>=25 & age<65) & mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000))) -> dat_sub
 
@@ -204,7 +181,7 @@ dat_sub %>%
 
 # Missingness 
 
-Age missingness is in full dataset among years and samples of interest; missingness for other variables is among those ages 25-64
+Age missingness is in full dataset among years and samples of interest; missingness for other variables is among those ages 25-64.
 
 
 ```r
@@ -280,7 +257,7 @@ dat_sub_no_hisp <- dat_sub_no_hisp[complete.cases(dat_sub_no_hisp[,c('age', 'tim
 
 # Descriptives
 
-Weighted and excluding missingness unless otherwise noted
+Weighted and excluding missingness unless otherwise noted.
 
 ## Unweighted and stratified table one 
 
@@ -289,7 +266,7 @@ Weighted and excluding missingness unless otherwise noted
 #vars of interest
 vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'int_year_fin', 'time', 'dead')
 catvars <- c("sex", 'dead')
-nonorm <- c('age', 'year', 'time')
+nonorm <- c('age', 'int_year_fin', 'time')
 
 x <- CreateTableOne(data=dat_sub_no_hisp, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, test=FALSE)
@@ -486,12 +463,12 @@ kable(x) %>%
    <td style="text-align:left;"> 48.00 [35.00, 59.00] </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> int_year_fin (mean (SD)) </td>
-   <td style="text-align:left;"> 1997.56 (9.70) </td>
-   <td style="text-align:left;"> 1996.36 (9.17) </td>
-   <td style="text-align:left;"> 1998.38 (10.04) </td>
-   <td style="text-align:left;"> 1998.09 (9.87) </td>
-   <td style="text-align:left;"> 1998.18 (9.96) </td>
+   <td style="text-align:left;"> int_year_fin (median [IQR]) </td>
+   <td style="text-align:left;"> 1994.00 [1990.00, 2005.00] </td>
+   <td style="text-align:left;"> 1993.00 [1989.00, 2003.00] </td>
+   <td style="text-align:left;"> 1994.00 [1990.00, 2007.00] </td>
+   <td style="text-align:left;"> 1994.00 [1990.00, 2007.00] </td>
+   <td style="text-align:left;"> 1994.00 [1990.00, 2007.00] </td>
   </tr>
   <tr>
    <td style="text-align:left;"> time (median [IQR]) </td>
@@ -717,12 +694,12 @@ kable(x) %>%
    <td style="text-align:left;"> 49.00 [36.00, 59.00] </td>
   </tr>
   <tr>
-   <td style="text-align:left;"> int_year_fin (mean (SD)) </td>
-   <td style="text-align:left;"> 2003.50 (9.76) </td>
-   <td style="text-align:left;"> 2001.84 (9.99) </td>
-   <td style="text-align:left;"> 2004.14 (9.90) </td>
-   <td style="text-align:left;"> 2003.71 (9.85) </td>
-   <td style="text-align:left;"> 2003.80 (9.89) </td>
+   <td style="text-align:left;"> int_year_fin (median [IQR]) </td>
+   <td style="text-align:left;"> 2005.00 [1994.00, 2012.00] </td>
+   <td style="text-align:left;"> 2003.00 [1992.00, 2010.00] </td>
+   <td style="text-align:left;"> 2006.00 [1995.00, 2013.00] </td>
+   <td style="text-align:left;"> 2006.00 [1994.00, 2012.00] </td>
+   <td style="text-align:left;"> 2006.00 [1994.00, 2012.00] </td>
   </tr>
   <tr>
    <td style="text-align:left;"> time (median [IQR]) </td>
@@ -738,6 +715,309 @@ kable(x) %>%
    <td style="text-align:left;"> 14.1 </td>
    <td style="text-align:left;"> 7.5 </td>
    <td style="text-align:left;"> 9.5 </td>
+   <td style="text-align:left;"> 21.0 </td>
+  </tr>
+</tbody>
+</table>
+
+## Stratified table one with workers subdivided by occupation
+
+
+```r
+x <- svyCreateTableOne(data=dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class_occ', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+kable(x) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+<table class="table table-striped table-condensed" style="margin-left: auto; margin-right: auto;">
+ <thead>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:left;"> IBOs </th>
+   <th style="text-align:left;"> UBOs </th>
+   <th style="text-align:left;"> Mgrs </th>
+   <th style="text-align:left;"> White collar </th>
+   <th style="text-align:left;"> Services </th>
+   <th style="text-align:left;"> Blue collar </th>
+   <th style="text-align:left;"> Unemps </th>
+   <th style="text-align:left;"> NLFs </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> n </td>
+   <td style="text-align:left;"> 95936894.0 </td>
+   <td style="text-align:left;"> 250120938.0 </td>
+   <td style="text-align:left;"> 414997755.0 </td>
+   <td style="text-align:left;"> 1308724530.0 </td>
+   <td style="text-align:left;"> 356909367.0 </td>
+   <td style="text-align:left;"> 689111163.0 </td>
+   <td style="text-align:left;"> 164504091.0 </td>
+   <td style="text-align:left;"> 879701057.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> sex = male (%) </td>
+   <td style="text-align:left;"> 72.5 </td>
+   <td style="text-align:left;"> 61.0 </td>
+   <td style="text-align:left;"> 54.1 </td>
+   <td style="text-align:left;"> 39.4 </td>
+   <td style="text-align:left;"> 41.4 </td>
+   <td style="text-align:left;"> 82.6 </td>
+   <td style="text-align:left;"> 51.9 </td>
+   <td style="text-align:left;"> 30.3 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> race_h (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NH white </td>
+   <td style="text-align:left;"> 83.2 </td>
+   <td style="text-align:left;"> 78.7 </td>
+   <td style="text-align:left;"> 79.3 </td>
+   <td style="text-align:left;"> 75.5 </td>
+   <td style="text-align:left;"> 56.1 </td>
+   <td style="text-align:left;"> 65.4 </td>
+   <td style="text-align:left;"> 58.0 </td>
+   <td style="text-align:left;"> 68.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NH black </td>
+   <td style="text-align:left;"> 4.2 </td>
+   <td style="text-align:left;"> 5.9 </td>
+   <td style="text-align:left;"> 8.0 </td>
+   <td style="text-align:left;"> 10.1 </td>
+   <td style="text-align:left;"> 19.2 </td>
+   <td style="text-align:left;"> 11.8 </td>
+   <td style="text-align:left;"> 20.2 </td>
+   <td style="text-align:left;"> 12.9 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Hispanic </td>
+   <td style="text-align:left;"> 6.8 </td>
+   <td style="text-align:left;"> 10.9 </td>
+   <td style="text-align:left;"> 7.3 </td>
+   <td style="text-align:left;"> 8.3 </td>
+   <td style="text-align:left;"> 18.8 </td>
+   <td style="text-align:left;"> 19.0 </td>
+   <td style="text-align:left;"> 15.9 </td>
+   <td style="text-align:left;"> 13.6 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NH other </td>
+   <td style="text-align:left;"> 5.8 </td>
+   <td style="text-align:left;"> 4.6 </td>
+   <td style="text-align:left;"> 5.4 </td>
+   <td style="text-align:left;"> 6.1 </td>
+   <td style="text-align:left;"> 5.9 </td>
+   <td style="text-align:left;"> 3.8 </td>
+   <td style="text-align:left;"> 5.9 </td>
+   <td style="text-align:left;"> 5.6 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> educ (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> &lt;HS </td>
+   <td style="text-align:left;"> 4.7 </td>
+   <td style="text-align:left;"> 12.3 </td>
+   <td style="text-align:left;"> 2.0 </td>
+   <td style="text-align:left;"> 2.7 </td>
+   <td style="text-align:left;"> 17.9 </td>
+   <td style="text-align:left;"> 21.4 </td>
+   <td style="text-align:left;"> 17.9 </td>
+   <td style="text-align:left;"> 22.7 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> HS </td>
+   <td style="text-align:left;"> 23.3 </td>
+   <td style="text-align:left;"> 33.2 </td>
+   <td style="text-align:left;"> 17.1 </td>
+   <td style="text-align:left;"> 22.2 </td>
+   <td style="text-align:left;"> 40.6 </td>
+   <td style="text-align:left;"> 47.5 </td>
+   <td style="text-align:left;"> 34.6 </td>
+   <td style="text-align:left;"> 34.8 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Some college </td>
+   <td style="text-align:left;"> 26.3 </td>
+   <td style="text-align:left;"> 26.4 </td>
+   <td style="text-align:left;"> 25.3 </td>
+   <td style="text-align:left;"> 28.8 </td>
+   <td style="text-align:left;"> 30.1 </td>
+   <td style="text-align:left;"> 24.6 </td>
+   <td style="text-align:left;"> 28.1 </td>
+   <td style="text-align:left;"> 24.1 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> College+ </td>
+   <td style="text-align:left;"> 45.7 </td>
+   <td style="text-align:left;"> 28.2 </td>
+   <td style="text-align:left;"> 55.6 </td>
+   <td style="text-align:left;"> 46.3 </td>
+   <td style="text-align:left;"> 11.5 </td>
+   <td style="text-align:left;"> 6.5 </td>
+   <td style="text-align:left;"> 19.4 </td>
+   <td style="text-align:left;"> 18.4 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> marital_tri (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Married </td>
+   <td style="text-align:left;"> 80.9 </td>
+   <td style="text-align:left;"> 72.6 </td>
+   <td style="text-align:left;"> 70.4 </td>
+   <td style="text-align:left;"> 66.5 </td>
+   <td style="text-align:left;"> 56.8 </td>
+   <td style="text-align:left;"> 67.7 </td>
+   <td style="text-align:left;"> 48.6 </td>
+   <td style="text-align:left;"> 66.0 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Single </td>
+   <td style="text-align:left;"> 8.3 </td>
+   <td style="text-align:left;"> 12.4 </td>
+   <td style="text-align:left;"> 15.3 </td>
+   <td style="text-align:left;"> 18.2 </td>
+   <td style="text-align:left;"> 22.7 </td>
+   <td style="text-align:left;"> 16.8 </td>
+   <td style="text-align:left;"> 29.7 </td>
+   <td style="text-align:left;"> 14.9 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> Widowed/divorced/separated </td>
+   <td style="text-align:left;"> 10.9 </td>
+   <td style="text-align:left;"> 15.0 </td>
+   <td style="text-align:left;"> 14.2 </td>
+   <td style="text-align:left;"> 15.3 </td>
+   <td style="text-align:left;"> 20.5 </td>
+   <td style="text-align:left;"> 15.5 </td>
+   <td style="text-align:left;"> 21.7 </td>
+   <td style="text-align:left;"> 19.1 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> region (%) </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+   <td style="text-align:left;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> MW </td>
+   <td style="text-align:left;"> 23.1 </td>
+   <td style="text-align:left;"> 23.3 </td>
+   <td style="text-align:left;"> 23.4 </td>
+   <td style="text-align:left;"> 24.2 </td>
+   <td style="text-align:left;"> 22.8 </td>
+   <td style="text-align:left;"> 26.4 </td>
+   <td style="text-align:left;"> 23.2 </td>
+   <td style="text-align:left;"> 21.5 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> NE </td>
+   <td style="text-align:left;"> 19.3 </td>
+   <td style="text-align:left;"> 16.5 </td>
+   <td style="text-align:left;"> 19.9 </td>
+   <td style="text-align:left;"> 19.9 </td>
+   <td style="text-align:left;"> 19.9 </td>
+   <td style="text-align:left;"> 16.6 </td>
+   <td style="text-align:left;"> 17.6 </td>
+   <td style="text-align:left;"> 18.2 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> S </td>
+   <td style="text-align:left;"> 36.3 </td>
+   <td style="text-align:left;"> 34.0 </td>
+   <td style="text-align:left;"> 34.4 </td>
+   <td style="text-align:left;"> 34.6 </td>
+   <td style="text-align:left;"> 35.3 </td>
+   <td style="text-align:left;"> 36.9 </td>
+   <td style="text-align:left;"> 35.5 </td>
+   <td style="text-align:left;"> 38.1 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> W </td>
+   <td style="text-align:left;"> 21.3 </td>
+   <td style="text-align:left;"> 26.3 </td>
+   <td style="text-align:left;"> 22.3 </td>
+   <td style="text-align:left;"> 21.3 </td>
+   <td style="text-align:left;"> 22.0 </td>
+   <td style="text-align:left;"> 20.0 </td>
+   <td style="text-align:left;"> 23.7 </td>
+   <td style="text-align:left;"> 22.2 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> age (median [IQR]) </td>
+   <td style="text-align:left;"> 46.00 [38.00, 54.00] </td>
+   <td style="text-align:left;"> 45.00 [36.00, 53.00] </td>
+   <td style="text-align:left;"> 42.00 [34.00, 51.00] </td>
+   <td style="text-align:left;"> 41.00 [33.00, 50.00] </td>
+   <td style="text-align:left;"> 41.00 [32.00, 50.00] </td>
+   <td style="text-align:left;"> 41.00 [32.00, 50.00] </td>
+   <td style="text-align:left;"> 39.00 [31.00, 49.00] </td>
+   <td style="text-align:left;"> 49.00 [36.00, 59.00] </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> int_year_fin (median [IQR]) </td>
+   <td style="text-align:left;"> 2005.00 [1994.00, 2012.00] </td>
+   <td style="text-align:left;"> 2003.00 [1992.00, 2010.00] </td>
+   <td style="text-align:left;"> 2006.00 [1995.00, 2013.00] </td>
+   <td style="text-align:left;"> 2006.00 [1994.00, 2012.00] </td>
+   <td style="text-align:left;"> 2006.00 [1995.00, 2013.00] </td>
+   <td style="text-align:left;"> 2004.00 [1993.00, 2011.00] </td>
+   <td style="text-align:left;"> 2009.00 [1996.00, 2012.00] </td>
+   <td style="text-align:left;"> 2006.00 [1994.00, 2012.00] </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> time (median [IQR]) </td>
+   <td style="text-align:left;"> 14.00 [8.00, 24.00] </td>
+   <td style="text-align:left;"> 16.00 [9.00, 26.00] </td>
+   <td style="text-align:left;"> 14.00 [7.00, 24.00] </td>
+   <td style="text-align:left;"> 14.00 [7.00, 25.00] </td>
+   <td style="text-align:left;"> 13.00 [7.00, 22.00] </td>
+   <td style="text-align:left;"> 15.00 [8.00, 25.00] </td>
+   <td style="text-align:left;"> 11.00 [7.00, 19.00] </td>
+   <td style="text-align:left;"> 12.00 [7.00, 19.00] </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> dead = 1 (%) </td>
+   <td style="text-align:left;"> 10.4 </td>
+   <td style="text-align:left;"> 14.1 </td>
+   <td style="text-align:left;"> 7.5 </td>
+   <td style="text-align:left;"> 7.5 </td>
+   <td style="text-align:left;"> 10.1 </td>
+   <td style="text-align:left;"> 12.6 </td>
+   <td style="text-align:left;"> 10.8 </td>
    <td style="text-align:left;"> 21.0 </td>
   </tr>
 </tbody>
@@ -855,7 +1135,7 @@ ggplot(data=dat_sub_no_hisp) +
         axis.text.y=element_text(size=10, color="black"), axis.text.x=element_text(size=10, color="black", angle=25, vjust=1, hjust=1)) 
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-6-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
 
 ```r
 ggsave('mosaic.png', dpi=600, height=5, width=10)
@@ -887,7 +1167,7 @@ ggplot(propped, aes(x=int_year_fin, y=prop, group=class, color=class, label=clas
   theme(legend.position = "none")
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-7-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-8-1.png)<!-- -->
 
 ```r
 ggsave('proportions_over_time.png', dpi=600)
@@ -1091,7 +1371,7 @@ kable(x[3:23,]) %>%
 
 ## Number of employees at work across classes from 2001-2018
 
-Excluding those not working. IBOs 4x as likely as UBOs to be in firms with 10+ employees. It probably makes sense that managers and workers are much more likely than business owners to work in larger firms, since any given firm, regardless of size, will only have one owner (in theory), whereas such firms will have multiple workers. For example, in a society with 5 firms, 4 of which have 5 employees and 1 of which has 1000 employees, 80% of owners will come from firms with 5 employees, but 98% (1000/1020) of workers will come from firms with 1000+ employees.
+Excluding those not working. IBOs 4x as likely as UBOs to be in firms with 10+ employees. It makes sense that managers and workers are much more likely than business owners to work in larger firms, since any given firm, regardless of size, will only have one owner (in theory), whereas such firms will have multiple workers. For example, in a society with 5 firms, 4 of which have 5 employees and 1 of which has 1000 employees, 80% of owners will come from firms with 5 employees, but 98% (1000/1020) of workers will come from firms with 1000+ employees.
 
 
 ```r
@@ -1675,7 +1955,7 @@ love.plot(covs,
   scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-15-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
 
 ##### Subdivided 
 
@@ -1697,7 +1977,7 @@ love.plot(covs,
   scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-17-1.png)<!-- -->
 
 #### Survival 
 
@@ -1735,7 +2015,7 @@ plotted(datted=kapped_sub,
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-18-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-19-1.png)<!-- -->
 
 ```r
 ggsave("overall_subdivided.png", dpi=600, height=4, width=8.75)
@@ -1989,7 +2269,7 @@ love.plot(covs,
                                 "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-22-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-23-1.png)<!-- -->
 
 ##### Subdivided 
 
@@ -2012,7 +2292,7 @@ love.plot(covs,
                                 "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-23-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-24-1.png)<!-- -->
 
 #### Survival 
 
@@ -2051,7 +2331,7 @@ plotted(datted=kapped_sub,
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-25-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-26-1.png)<!-- -->
 
 ```r
 ggsave("overall_subdivided_adj.png", dpi=600, height=4, width=8.75)
@@ -2316,7 +2596,7 @@ plotted(datted=kapped_late,
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-30-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-31-1.png)<!-- -->
 
 ```r
 ggsave("change_over_time.png", dpi=600, height=4, width=8.75)
@@ -2554,7 +2834,7 @@ plotted(datted=kapped_late,
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-35-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-36-1.png)<!-- -->
 
 ```r
 ggsave("change_over_time_adj.png", dpi=600, height=4, width=8.75)
@@ -2737,7 +3017,7 @@ dat_sub_no_hisp %>%
                           family="multinomial",
                           link="logit",
                           numerator=~1,
-                          denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
+                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
                           data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           maxit=1000,
@@ -2749,7 +3029,7 @@ summary(dat_sub_no_hisp$sw_race)
 
 ```
 ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-##  0.3181  0.8442  0.9380  1.0063  1.1222  6.1245
+##  0.2595  0.8106  0.9170  0.9995  1.0863  7.9415
 ```
 
 ### Survival
@@ -2777,7 +3057,7 @@ plotted_group(kapped_race, grpd1="NH white", grpd2="NH Black, Hispanic, or NH ot
   plot_layout(ncol=1)
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-40-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-41-1.png)<!-- -->
 
 ```r
 ggsave("gender_race_survival.png", dpi=600, height=7.5, width=8.75)
@@ -2993,92 +3273,92 @@ tidy_n(modded=mod_race, bind=binded_race, rows=1:9, nad=8, captioned="Ref: NH wh
 <tbody>
   <tr>
    <td style="text-align:left;"> class_pocNH white UBOs </td>
-   <td style="text-align:right;"> 1.21 </td>
-   <td style="text-align:right;"> 1.14 </td>
-   <td style="text-align:right;"> 1.28 </td>
-   <td style="text-align:right;"> -5.3 </td>
-   <td style="text-align:right;"> -7.2 </td>
+   <td style="text-align:right;"> 1.23 </td>
+   <td style="text-align:right;"> 1.15 </td>
+   <td style="text-align:right;"> 1.31 </td>
+   <td style="text-align:right;"> -5.4 </td>
+   <td style="text-align:right;"> -7.3 </td>
    <td style="text-align:right;"> -3.5 </td>
    <td style="text-align:right;"> 911850 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_pocNH white mgrs </td>
-   <td style="text-align:right;"> 0.91 </td>
-   <td style="text-align:right;"> 0.86 </td>
-   <td style="text-align:right;"> 0.97 </td>
-   <td style="text-align:right;"> 0.3 </td>
-   <td style="text-align:right;"> -1.5 </td>
-   <td style="text-align:right;"> 2.1 </td>
+   <td style="text-align:right;"> 0.96 </td>
+   <td style="text-align:right;"> 0.90 </td>
+   <td style="text-align:right;"> 1.02 </td>
+   <td style="text-align:right;"> -0.3 </td>
+   <td style="text-align:right;"> -2.1 </td>
+   <td style="text-align:right;"> 1.5 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_pocNH white wrks </td>
+   <td style="text-align:right;"> 1.24 </td>
    <td style="text-align:right;"> 1.16 </td>
-   <td style="text-align:right;"> 1.10 </td>
-   <td style="text-align:right;"> 1.22 </td>
-   <td style="text-align:right;"> -4.7 </td>
-   <td style="text-align:right;"> -6.3 </td>
-   <td style="text-align:right;"> -3.1 </td>
+   <td style="text-align:right;"> 1.31 </td>
+   <td style="text-align:right;"> -5.8 </td>
+   <td style="text-align:right;"> -7.5 </td>
+   <td style="text-align:right;"> -4.1 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_pocNH white NLFs </td>
-   <td style="text-align:right;"> 1.90 </td>
-   <td style="text-align:right;"> 1.80 </td>
-   <td style="text-align:right;"> 2.01 </td>
-   <td style="text-align:right;"> -12.3 </td>
-   <td style="text-align:right;"> -14.0 </td>
-   <td style="text-align:right;"> -10.7 </td>
+   <td style="text-align:right;"> 2.48 </td>
+   <td style="text-align:right;"> 2.33 </td>
+   <td style="text-align:right;"> 2.64 </td>
+   <td style="text-align:right;"> -18.3 </td>
+   <td style="text-align:right;"> -20.1 </td>
+   <td style="text-align:right;"> -16.6 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_pocPOC IBOs </td>
    <td style="text-align:right;"> 0.91 </td>
-   <td style="text-align:right;"> 0.80 </td>
+   <td style="text-align:right;"> 0.79 </td>
    <td style="text-align:right;"> 1.05 </td>
-   <td style="text-align:right;"> 1.6 </td>
-   <td style="text-align:right;"> -2.9 </td>
-   <td style="text-align:right;"> 6.2 </td>
+   <td style="text-align:right;"> 2.4 </td>
+   <td style="text-align:right;"> -1.9 </td>
+   <td style="text-align:right;"> 6.7 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_pocPOC UBOs </td>
-   <td style="text-align:right;"> 1.38 </td>
-   <td style="text-align:right;"> 1.27 </td>
-   <td style="text-align:right;"> 1.49 </td>
-   <td style="text-align:right;"> -9.0 </td>
-   <td style="text-align:right;"> -12.1 </td>
-   <td style="text-align:right;"> -5.8 </td>
+   <td style="text-align:right;"> 1.41 </td>
+   <td style="text-align:right;"> 1.30 </td>
+   <td style="text-align:right;"> 1.54 </td>
+   <td style="text-align:right;"> -9.1 </td>
+   <td style="text-align:right;"> -12.3 </td>
+   <td style="text-align:right;"> -5.9 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_pocPOC mgrs </td>
-   <td style="text-align:right;"> 0.96 </td>
-   <td style="text-align:right;"> 0.88 </td>
-   <td style="text-align:right;"> 1.04 </td>
-   <td style="text-align:right;"> -1.7 </td>
-   <td style="text-align:right;"> -5.0 </td>
-   <td style="text-align:right;"> 1.6 </td>
+   <td style="text-align:right;"> 1.03 </td>
+   <td style="text-align:right;"> 0.94 </td>
+   <td style="text-align:right;"> 1.12 </td>
+   <td style="text-align:right;"> -2.7 </td>
+   <td style="text-align:right;"> -6.0 </td>
+   <td style="text-align:right;"> 0.6 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_pocPOC wrks </td>
-   <td style="text-align:right;"> 1.30 </td>
-   <td style="text-align:right;"> 1.23 </td>
-   <td style="text-align:right;"> 1.37 </td>
-   <td style="text-align:right;"> -6.6 </td>
-   <td style="text-align:right;"> -8.3 </td>
-   <td style="text-align:right;"> -4.9 </td>
+   <td style="text-align:right;"> 1.39 </td>
+   <td style="text-align:right;"> 1.31 </td>
+   <td style="text-align:right;"> 1.48 </td>
+   <td style="text-align:right;"> -7.7 </td>
+   <td style="text-align:right;"> -9.5 </td>
+   <td style="text-align:right;"> -5.9 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_pocPOC NLFs </td>
-   <td style="text-align:right;"> 2.13 </td>
-   <td style="text-align:right;"> 2.01 </td>
-   <td style="text-align:right;"> 2.25 </td>
-   <td style="text-align:right;"> -15.5 </td>
-   <td style="text-align:right;"> -17.3 </td>
-   <td style="text-align:right;"> -13.6 </td>
+   <td style="text-align:right;"> 2.67 </td>
+   <td style="text-align:right;"> 2.50 </td>
+   <td style="text-align:right;"> 2.84 </td>
+   <td style="text-align:right;"> -20.2 </td>
+   <td style="text-align:right;"> -22.2 </td>
+   <td style="text-align:right;"> -18.2 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
@@ -3109,39 +3389,39 @@ within_group_ests(datted=kapped_race, modded=mod_race, term1="class_pocPOC", cap
 <tbody>
   <tr>
    <td style="text-align:left;"> classUBOs </td>
-   <td style="text-align:right;"> 1.51 </td>
-   <td style="text-align:right;"> 1.31 </td>
-   <td style="text-align:right;"> 1.73 </td>
-   <td style="text-align:right;"> -10.6 </td>
-   <td style="text-align:right;"> -12.4 </td>
-   <td style="text-align:right;"> -8.8 </td>
+   <td style="text-align:right;"> 1.55 </td>
+   <td style="text-align:right;"> 1.34 </td>
+   <td style="text-align:right;"> 1.80 </td>
+   <td style="text-align:right;"> -11.5 </td>
+   <td style="text-align:right;"> -13.4 </td>
+   <td style="text-align:right;"> -9.6 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMgrs </td>
-   <td style="text-align:right;"> 1.05 </td>
-   <td style="text-align:right;"> 0.91 </td>
-   <td style="text-align:right;"> 1.21 </td>
-   <td style="text-align:right;"> -3.3 </td>
+   <td style="text-align:right;"> 1.13 </td>
+   <td style="text-align:right;"> 0.97 </td>
+   <td style="text-align:right;"> 1.31 </td>
    <td style="text-align:right;"> -5.1 </td>
-   <td style="text-align:right;"> -1.5 </td>
+   <td style="text-align:right;"> -7.0 </td>
+   <td style="text-align:right;"> -3.3 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classWrks </td>
-   <td style="text-align:right;"> 1.43 </td>
-   <td style="text-align:right;"> 1.26 </td>
-   <td style="text-align:right;"> 1.62 </td>
-   <td style="text-align:right;"> -8.2 </td>
-   <td style="text-align:right;"> -9.8 </td>
-   <td style="text-align:right;"> -6.6 </td>
+   <td style="text-align:right;"> 1.53 </td>
+   <td style="text-align:right;"> 1.33 </td>
+   <td style="text-align:right;"> 1.75 </td>
+   <td style="text-align:right;"> -10.1 </td>
+   <td style="text-align:right;"> -11.8 </td>
+   <td style="text-align:right;"> -8.5 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNLFs </td>
-   <td style="text-align:right;"> 2.33 </td>
-   <td style="text-align:right;"> 2.05 </td>
-   <td style="text-align:right;"> 2.64 </td>
-   <td style="text-align:right;"> -17.1 </td>
-   <td style="text-align:right;"> -18.7 </td>
-   <td style="text-align:right;"> -15.4 </td>
+   <td style="text-align:right;"> 2.93 </td>
+   <td style="text-align:right;"> 2.56 </td>
+   <td style="text-align:right;"> 3.36 </td>
+   <td style="text-align:right;"> -22.6 </td>
+   <td style="text-align:right;"> -24.4 </td>
+   <td style="text-align:right;"> -20.8 </td>
   </tr>
 </tbody>
 </table>
@@ -3157,7 +3437,7 @@ dat_sub_no_hisp %>%
                           family="multinomial",
                           link="logit",
                           numerator=~1,
-                          denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
+                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
                           data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           maxit=1000,
@@ -3169,7 +3449,7 @@ summary(dat_sub_no_hisp$sw_educ)
 
 ```
 ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-##  0.3094  0.7608  0.9530  0.9949  1.1654  4.2333
+##  0.2528  0.7431  0.9092  0.9870  1.1553  7.1077
 ```
 
 ### Survival
@@ -3185,10 +3465,10 @@ binded_educ <- survdiffed_group(kapped_educ)
 
 
 ```r
-plotted_group(kapped_educ, grpd1=">HS", grpd2="\u2264HS", levelled=c("\u2264HS", ">HS"))
+plotted_group(kapped_educ, grpd1=">HS", grpd2="\u2264HS", levelled=c("\u2264HS", ">HS"), bottom=0.45)
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-44-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-45-1.png)<!-- -->
 
 ```r
 ggsave("educ_survival.png", dpi=600, height=4, width=8.75)
@@ -3224,92 +3504,92 @@ tidy_n(modded=mod_educ, bind=binded_educ, rows=1:9, nad=8, captioned="Ref: >HS I
 <tbody>
   <tr>
    <td style="text-align:left;"> class_educ&gt;HS UBOs </td>
-   <td style="text-align:right;"> 1.15 </td>
-   <td style="text-align:right;"> 1.07 </td>
-   <td style="text-align:right;"> 1.24 </td>
-   <td style="text-align:right;"> -3.1 </td>
-   <td style="text-align:right;"> -5.2 </td>
-   <td style="text-align:right;"> -1.0 </td>
+   <td style="text-align:right;"> 1.22 </td>
+   <td style="text-align:right;"> 1.13 </td>
+   <td style="text-align:right;"> 1.33 </td>
+   <td style="text-align:right;"> -4.1 </td>
+   <td style="text-align:right;"> -6.3 </td>
+   <td style="text-align:right;"> -1.9 </td>
    <td style="text-align:right;"> 911850 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_educ&gt;HS mgrs </td>
+   <td style="text-align:right;"> 1.00 </td>
    <td style="text-align:right;"> 0.92 </td>
-   <td style="text-align:right;"> 0.86 </td>
-   <td style="text-align:right;"> 0.99 </td>
-   <td style="text-align:right;"> 0.2 </td>
-   <td style="text-align:right;"> -1.8 </td>
-   <td style="text-align:right;"> 2.1 </td>
+   <td style="text-align:right;"> 1.07 </td>
+   <td style="text-align:right;"> -1.1 </td>
+   <td style="text-align:right;"> -3.1 </td>
+   <td style="text-align:right;"> 0.9 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_educ&gt;HS wrks </td>
-   <td style="text-align:right;"> 1.02 </td>
-   <td style="text-align:right;"> 0.96 </td>
-   <td style="text-align:right;"> 1.09 </td>
-   <td style="text-align:right;"> -1.3 </td>
-   <td style="text-align:right;"> -3.1 </td>
-   <td style="text-align:right;"> 0.5 </td>
+   <td style="text-align:right;"> 1.14 </td>
+   <td style="text-align:right;"> 1.06 </td>
+   <td style="text-align:right;"> 1.22 </td>
+   <td style="text-align:right;"> -3.3 </td>
+   <td style="text-align:right;"> -5.1 </td>
+   <td style="text-align:right;"> -1.4 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_educ&gt;HS NLFs </td>
-   <td style="text-align:right;"> 1.54 </td>
-   <td style="text-align:right;"> 1.44 </td>
-   <td style="text-align:right;"> 1.65 </td>
-   <td style="text-align:right;"> -6.1 </td>
-   <td style="text-align:right;"> -8.1 </td>
-   <td style="text-align:right;"> -4.2 </td>
+   <td style="text-align:right;"> 2.15 </td>
+   <td style="text-align:right;"> 2.00 </td>
+   <td style="text-align:right;"> 2.31 </td>
+   <td style="text-align:right;"> -13.1 </td>
+   <td style="text-align:right;"> -15.2 </td>
+   <td style="text-align:right;"> -11.1 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_educ=HS IBOs </td>
-   <td style="text-align:right;"> 1.27 </td>
-   <td style="text-align:right;"> 1.15 </td>
-   <td style="text-align:right;"> 1.40 </td>
-   <td style="text-align:right;"> -6.9 </td>
-   <td style="text-align:right;"> -10.1 </td>
-   <td style="text-align:right;"> -3.8 </td>
+   <td style="text-align:right;"> 1.38 </td>
+   <td style="text-align:right;"> 1.24 </td>
+   <td style="text-align:right;"> 1.54 </td>
+   <td style="text-align:right;"> -8.6 </td>
+   <td style="text-align:right;"> -11.9 </td>
+   <td style="text-align:right;"> -5.3 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_educ=HS UBOs </td>
-   <td style="text-align:right;"> 1.59 </td>
-   <td style="text-align:right;"> 1.48 </td>
-   <td style="text-align:right;"> 1.71 </td>
-   <td style="text-align:right;"> -13.7 </td>
-   <td style="text-align:right;"> -15.8 </td>
-   <td style="text-align:right;"> -11.5 </td>
+   <td style="text-align:right;"> 1.66 </td>
+   <td style="text-align:right;"> 1.54 </td>
+   <td style="text-align:right;"> 1.80 </td>
+   <td style="text-align:right;"> -14.3 </td>
+   <td style="text-align:right;"> -16.5 </td>
+   <td style="text-align:right;"> -12.1 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_educ=HS mgrs </td>
-   <td style="text-align:right;"> 1.30 </td>
-   <td style="text-align:right;"> 1.20 </td>
-   <td style="text-align:right;"> 1.41 </td>
-   <td style="text-align:right;"> -8.7 </td>
-   <td style="text-align:right;"> -11.1 </td>
-   <td style="text-align:right;"> -6.3 </td>
+   <td style="text-align:right;"> 1.46 </td>
+   <td style="text-align:right;"> 1.34 </td>
+   <td style="text-align:right;"> 1.58 </td>
+   <td style="text-align:right;"> -10.8 </td>
+   <td style="text-align:right;"> -13.3 </td>
+   <td style="text-align:right;"> -8.3 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_educ=HS wrks </td>
-   <td style="text-align:right;"> 1.59 </td>
-   <td style="text-align:right;"> 1.49 </td>
-   <td style="text-align:right;"> 1.69 </td>
-   <td style="text-align:right;"> -12.6 </td>
+   <td style="text-align:right;"> 1.74 </td>
+   <td style="text-align:right;"> 1.63 </td>
+   <td style="text-align:right;"> 1.87 </td>
    <td style="text-align:right;"> -14.4 </td>
-   <td style="text-align:right;"> -10.8 </td>
+   <td style="text-align:right;"> -16.2 </td>
+   <td style="text-align:right;"> -12.5 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> class_educ=HS NLFs </td>
-   <td style="text-align:right;"> 2.56 </td>
-   <td style="text-align:right;"> 2.40 </td>
-   <td style="text-align:right;"> 2.73 </td>
-   <td style="text-align:right;"> -20.8 </td>
-   <td style="text-align:right;"> -22.6 </td>
-   <td style="text-align:right;"> -18.9 </td>
+   <td style="text-align:right;"> 3.36 </td>
+   <td style="text-align:right;"> 3.13 </td>
+   <td style="text-align:right;"> 3.61 </td>
+   <td style="text-align:right;"> -26.9 </td>
+   <td style="text-align:right;"> -28.9 </td>
+   <td style="text-align:right;"> -25.0 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
@@ -3340,39 +3620,39 @@ within_group_ests(datted=kapped_educ, modded=mod_educ, term1="class_educ=HS", ca
 <tbody>
   <tr>
    <td style="text-align:left;"> classUBOs </td>
-   <td style="text-align:right;"> 1.26 </td>
-   <td style="text-align:right;"> 1.16 </td>
-   <td style="text-align:right;"> 1.36 </td>
-   <td style="text-align:right;"> -6.8 </td>
-   <td style="text-align:right;"> -8.9 </td>
-   <td style="text-align:right;"> -4.6 </td>
+   <td style="text-align:right;"> 1.20 </td>
+   <td style="text-align:right;"> 1.10 </td>
+   <td style="text-align:right;"> 1.32 </td>
+   <td style="text-align:right;"> -5.7 </td>
+   <td style="text-align:right;"> -7.9 </td>
+   <td style="text-align:right;"> -3.5 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMgrs </td>
-   <td style="text-align:right;"> 1.03 </td>
-   <td style="text-align:right;"> 0.94 </td>
-   <td style="text-align:right;"> 1.12 </td>
-   <td style="text-align:right;"> -1.8 </td>
-   <td style="text-align:right;"> -3.8 </td>
-   <td style="text-align:right;"> 0.2 </td>
+   <td style="text-align:right;"> 1.05 </td>
+   <td style="text-align:right;"> 0.95 </td>
+   <td style="text-align:right;"> 1.17 </td>
+   <td style="text-align:right;"> -2.2 </td>
+   <td style="text-align:right;"> -4.2 </td>
+   <td style="text-align:right;"> -0.2 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classWrks </td>
-   <td style="text-align:right;"> 1.25 </td>
+   <td style="text-align:right;"> 1.26 </td>
    <td style="text-align:right;"> 1.16 </td>
-   <td style="text-align:right;"> 1.35 </td>
-   <td style="text-align:right;"> -5.7 </td>
-   <td style="text-align:right;"> -7.5 </td>
+   <td style="text-align:right;"> 1.38 </td>
+   <td style="text-align:right;"> -5.8 </td>
+   <td style="text-align:right;"> -7.7 </td>
    <td style="text-align:right;"> -3.9 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNLFs </td>
-   <td style="text-align:right;"> 2.02 </td>
-   <td style="text-align:right;"> 1.87 </td>
-   <td style="text-align:right;"> 2.18 </td>
-   <td style="text-align:right;"> -13.8 </td>
-   <td style="text-align:right;"> -15.8 </td>
-   <td style="text-align:right;"> -11.9 </td>
+   <td style="text-align:right;"> 2.43 </td>
+   <td style="text-align:right;"> 2.23 </td>
+   <td style="text-align:right;"> 2.66 </td>
+   <td style="text-align:right;"> -18.3 </td>
+   <td style="text-align:right;"> -20.4 </td>
+   <td style="text-align:right;"> -16.3 </td>
   </tr>
 </tbody>
 </table>
@@ -3455,7 +3735,7 @@ plotted(datted=kapped_old, grpd="45-64", bottom=0.2) +
   theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
 ```
 
-![](analysis_9_7_22_files/figure-html/unnamed-chunk-49-1.png)<!-- -->
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-50-1.png)<!-- -->
 
 ```r
 ggsave("age_survival.png", dpi=600, height=4, width=8.75)
@@ -3662,7 +3942,7 @@ kable(cbind(tidy(mod_reg, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], c(length
 
 #### Accounting for survey design in overall Cox analyses (adjusting for confounders with IPW)
 
-Basically identical to primary. It makes no difference that we subsetted the dataset by age above rather than within the svycoxph function because age subpopulations appear in all the clusters
+Basically identical to primary. It makes no difference that we subsetted the dataset by age above rather than within the svycoxph function because age subpopulations appear in all the clusters.
 
 
 ```r
@@ -3817,14 +4097,15 @@ Basically identical to primary, as Hispanic oversample is small (<0.5% of full s
 
 
 ```r
+dat_sub <- dat_sub[complete.cases(dat_sub[,c('age', 'time', 'class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')]),] #exclude missing using primary approach
+
 dat_sub %>%
-  filter(!is.na(class) & !is.na(age)) %>%
   mutate(sw_hisp=ipwpoint(exposure=class,
                           family="multinomial",
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                          data=subset(dat_sub, !is.na(class) & !is.na(age)),
+                          data=dat_sub,
                           weights=mortwt_f,
                           maxit=1000,
                           trace=FALSE)$ipw.weights,
@@ -3835,7 +4116,7 @@ summary(dat_sub_hisp_overall$sw_hisp)
 
 ```
 ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
-##  0.3347  0.8489  0.9532  0.9901  1.0506  6.2242
+##  0.3332  0.8490  0.9529  0.9899  1.0505  6.2868
 ```
 
 
@@ -3875,22 +4156,22 @@ tidy_n(modded=mod_hisp, bind=binded_hisp)
 <tbody>
   <tr>
    <td style="text-align:left;"> classUBOs </td>
-   <td style="text-align:right;"> 1.26 </td>
+   <td style="text-align:right;"> 1.25 </td>
    <td style="text-align:right;"> 1.20 </td>
    <td style="text-align:right;"> 1.31 </td>
-   <td style="text-align:right;"> -6.1 </td>
-   <td style="text-align:right;"> -7.8 </td>
-   <td style="text-align:right;"> -4.4 </td>
-   <td style="text-align:right;"> 925046 </td>
+   <td style="text-align:right;"> -6.0 </td>
+   <td style="text-align:right;"> -7.7 </td>
+   <td style="text-align:right;"> -4.3 </td>
+   <td style="text-align:right;"> 915268 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMgrs </td>
    <td style="text-align:right;"> 1.00 </td>
-   <td style="text-align:right;"> 0.96 </td>
-   <td style="text-align:right;"> 1.05 </td>
+   <td style="text-align:right;"> 0.95 </td>
+   <td style="text-align:right;"> 1.04 </td>
    <td style="text-align:right;"> -0.9 </td>
-   <td style="text-align:right;"> -2.6 </td>
-   <td style="text-align:right;"> 0.7 </td>
+   <td style="text-align:right;"> -2.5 </td>
+   <td style="text-align:right;"> 0.8 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
@@ -3898,19 +4179,19 @@ tidy_n(modded=mod_hisp, bind=binded_hisp)
    <td style="text-align:right;"> 1.29 </td>
    <td style="text-align:right;"> 1.24 </td>
    <td style="text-align:right;"> 1.35 </td>
-   <td style="text-align:right;"> -6.8 </td>
+   <td style="text-align:right;"> -6.7 </td>
    <td style="text-align:right;"> -8.2 </td>
-   <td style="text-align:right;"> -5.3 </td>
+   <td style="text-align:right;"> -5.2 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNLFs </td>
    <td style="text-align:right;"> 2.30 </td>
-   <td style="text-align:right;"> 2.20 </td>
-   <td style="text-align:right;"> 2.40 </td>
-   <td style="text-align:right;"> -18.9 </td>
-   <td style="text-align:right;"> -20.5 </td>
-   <td style="text-align:right;"> -17.4 </td>
+   <td style="text-align:right;"> 2.21 </td>
+   <td style="text-align:right;"> 2.41 </td>
+   <td style="text-align:right;"> -19.1 </td>
+   <td style="text-align:right;"> -20.6 </td>
+   <td style="text-align:right;"> -17.5 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
@@ -3918,9 +4199,11 @@ tidy_n(modded=mod_hisp, bind=binded_hisp)
 
 ### Excluding NHIS sampling weights from analyses 
 
-Similar to primary analyses, but somewhat attenuated.
+Similar to primary analyses, but somewhat attenuated. Period-stratified survival curves more similar to primary analyses.
 
-#### Distribution of IPW
+#### Overall
+
+##### Distribution of IPW
 
 
 ```r
@@ -3949,7 +4232,7 @@ mod_over_excl <- coxph(Surv(time,dead)~class, robust=T, w=sw_over_excl, data=dat
 binded_over_excl <- survdiffed(datted=kapped_over_excl)
 ```
 
-#### IPW survival differences and hazard ratios
+##### IPW survival differences and hazard ratios
 
 
 ```r
@@ -4015,6 +4298,231 @@ tidy_n(modded=mod_over_excl, bind=binded_over_excl)
    <td style="text-align:right;"> -18.6 </td>
    <td style="text-align:right;"> -20.2 </td>
    <td style="text-align:right;"> -17.0 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
+
+#### Class-by-year stratification - 1986-1996 interview years w/ f/u through end of 2004 vs 2001-2019 interview years w/ f/u through end of 2019
+
+##### Distribution of IPW
+
+###### 1986-1996
+
+
+```r
+dat_sub_no_hisp %>%
+  filter(int_year_fin<=1996) %>%
+  mutate(sw_excl=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights)  -> dat_sub_no_hisp_1986
+
+summary(dat_sub_no_hisp_1986$sw_excl)
+```
+
+```
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##  0.3035  0.8233  0.9378  0.9964  1.0325  6.5543
+```
+
+###### 2001-2019
+
+
+```r
+dat_sub_no_hisp %>%
+  filter(int_year_fin>=2001) %>%
+  mutate(sw_excl=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights)  -> dat_sub_no_hisp_2001
+
+summary(dat_sub_no_hisp_2001$sw_excl)
+```
+
+```
+##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+##  0.3701  0.8551  0.9354  0.9970  1.0826  5.1617
+```
+
+##### Survival 
+
+
+```r
+#early
+kapped_early <- survfit(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_1986, se=T) 
+mod_early <- coxph(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_1986)
+binded_early <- survdiffed(kapped_early, timed=19)
+
+#late
+kapped_late <- survfit(Surv(time,dead)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_2001, se=T)
+mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_2001)
+binded_late <- survdiffed(kapped_late, timed=19)
+```
+
+###### IPW survival plots
+
+
+```r
+plotted(datted=kapped_early,
+        classed_repped=19,
+        grpd="1986-1996 with follow-up through 2004", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11)))  +
+plotted(datted=kapped_late,
+        classed_repped=19,
+        grpd="2001-2019 with follow-up through 2019", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11))) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+```
+
+![](analysis_12_1_22_files/figure-html/unnamed-chunk-65-1.png)<!-- -->
+
+###### IPW survival differences and hazard ratios
+
+
+```r
+tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: IBOs (1986-1996 subset)")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: IBOs (1986-1996 subset)</caption>
+ <thead>
+<tr>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">HR</div></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">SD per 100 at end of f/u</div></th>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+</tr>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> SD </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> classUBOs </td>
+   <td style="text-align:right;"> 1.17 </td>
+   <td style="text-align:right;"> 1.06 </td>
+   <td style="text-align:right;"> 1.29 </td>
+   <td style="text-align:right;"> -0.1 </td>
+   <td style="text-align:right;"> -1.8 </td>
+   <td style="text-align:right;"> 1.5 </td>
+   <td style="text-align:right;"> 564202 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classMgrs </td>
+   <td style="text-align:right;"> 0.95 </td>
+   <td style="text-align:right;"> 0.86 </td>
+   <td style="text-align:right;"> 1.05 </td>
+   <td style="text-align:right;"> 1.1 </td>
+   <td style="text-align:right;"> -0.6 </td>
+   <td style="text-align:right;"> 2.8 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classWrks </td>
+   <td style="text-align:right;"> 1.25 </td>
+   <td style="text-align:right;"> 1.14 </td>
+   <td style="text-align:right;"> 1.36 </td>
+   <td style="text-align:right;"> -1.2 </td>
+   <td style="text-align:right;"> -2.8 </td>
+   <td style="text-align:right;"> 0.3 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classNLFs </td>
+   <td style="text-align:right;"> 2.85 </td>
+   <td style="text-align:right;"> 2.61 </td>
+   <td style="text-align:right;"> 3.12 </td>
+   <td style="text-align:right;"> -11.7 </td>
+   <td style="text-align:right;"> -13.3 </td>
+   <td style="text-align:right;"> -10.0 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+</tbody>
+</table>
+
+```r
+tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: IBOs (2001-2019 subset)")
+```
+
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<caption>Ref: IBOs (2001-2019 subset)</caption>
+ <thead>
+<tr>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">HR</div></th>
+<th style="border-bottom:hidden;padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="3"><div style="border-bottom: 1px solid #ddd; padding-bottom: 5px; ">SD per 100 at end of f/u</div></th>
+<th style="empty-cells: hide;border-bottom:hidden;" colspan="1"></th>
+</tr>
+  <tr>
+   <th style="text-align:left;">   </th>
+   <th style="text-align:right;"> HR </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> SD </th>
+   <th style="text-align:right;"> Lower </th>
+   <th style="text-align:right;"> Upper </th>
+   <th style="text-align:right;"> N </th>
+  </tr>
+ </thead>
+<tbody>
+  <tr>
+   <td style="text-align:left;"> classUBOs </td>
+   <td style="text-align:right;"> 1.35 </td>
+   <td style="text-align:right;"> 1.16 </td>
+   <td style="text-align:right;"> 1.57 </td>
+   <td style="text-align:right;"> -3.2 </td>
+   <td style="text-align:right;"> -4.8 </td>
+   <td style="text-align:right;"> -1.5 </td>
+   <td style="text-align:right;"> 347648 </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classMgrs </td>
+   <td style="text-align:right;"> 0.98 </td>
+   <td style="text-align:right;"> 0.84 </td>
+   <td style="text-align:right;"> 1.14 </td>
+   <td style="text-align:right;"> -0.1 </td>
+   <td style="text-align:right;"> -1.6 </td>
+   <td style="text-align:right;"> 1.4 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classWrks </td>
+   <td style="text-align:right;"> 1.36 </td>
+   <td style="text-align:right;"> 1.18 </td>
+   <td style="text-align:right;"> 1.57 </td>
+   <td style="text-align:right;"> -3.0 </td>
+   <td style="text-align:right;"> -4.4 </td>
+   <td style="text-align:right;"> -1.6 </td>
+   <td style="text-align:right;">  </td>
+  </tr>
+  <tr>
+   <td style="text-align:left;"> classNLFs </td>
+   <td style="text-align:right;"> 3.72 </td>
+   <td style="text-align:right;"> 3.23 </td>
+   <td style="text-align:right;"> 4.28 </td>
+   <td style="text-align:right;"> -14.9 </td>
+   <td style="text-align:right;"> -16.4 </td>
+   <td style="text-align:right;"> -13.4 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
@@ -5318,7 +5826,7 @@ sessionInfo()
 ##  [34] abind_1.4-5         scales_1.1.1        DBI_1.1.1          
 ##  [37] rstatix_0.7.0       viridisLite_0.4.0   xtable_1.8-4       
 ##  [40] htmlTable_2.2.1     foreign_0.8-81      bit_4.0.4          
-##  [43] proxy_0.4-25        km.ci_0.5-2         htmlwidgets_1.5.3  
+##  [43] proxy_0.4-25        km.ci_0.5-2         htmlwidgets_1.5.4  
 ##  [46] httr_1.4.2          ellipsis_0.3.2      farver_2.1.0       
 ##  [49] pkgconfig_2.0.3     nnet_7.3-16         sass_0.4.0         
 ##  [52] utf8_1.2.1          labeling_0.4.2      tidyselect_1.1.1   

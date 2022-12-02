@@ -1,6 +1,6 @@
 ---
 title: "Dead labor: classed, gendered, and racialized mortality inequities in the United States"
-author: "-"
+author: "Jerzy Eisenberg-Guyot"
 date: "`r format(Sys.time(), '%B %Y')`"
 output: 
   html_document:
@@ -8,43 +8,20 @@ output:
     toc: true
     toc_float: true
     keep_md: true
-    toc_depth: 5
+    toc_depth: 6
 always_allow_html: true
 ---
 
 * Overview: 
-  + Descriptive analyses of class and mortality in the cross-sectional 1986-2018 NHIS with mortality follow-up through the end of 2019. Survival curves and Cox models are minimally adjusted (age, gender, and year) using IPW unless otherwise noted.
+  + Descriptive analyses of class and mortality in the cross-sectional 1986-2018 NHIS with mortality follow-up through the end of 2019. 
 <br>
 * Coding of classes:
-  + Incorporated business owners (IBOs, loosely analogous to capitalists) are those who are self-employed in an incorporated business
-  + Unincorporated business owners (UBOs, loosely analogous to the petit bourgeoisie) are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few people in the latter)
-  + Managers (mgrs) are those who are not self-employed but who are employed and who have an "executive, administrative, or managerial" occupation
-  + Workers (wrks) are those who are unemployed/"not employed" (few people) OR who are employed but do not have a management occupation
-  + Not in the labor force (NLFs) are those who are "not in the labor force" 
+  + Incorporated business owners are those who are self-employed in an incorporated business.
+  + Unincorporated business owners are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few in the latter).
+  + Managers (mgrs) are those who are not self-employed but who are employed and who have an executive, administrative, or managerial occupation.
+  + Workers (wrks) are those who are unemployed/"not employed" OR who are employed but do not have an executive, administrative, or managerial occupation.
+  + Not in the labor force (NLFs) are those who are "not in the labor force" .
 <br>
-* Useful references regarding IBOs vs UBOs:
-  + Nuts and bolts: 
-    - https://smallbusiness.chron.com/difference-between-incorporated-unincorporated-businesses-57463.html
-    - https://www.upcounsel.com/is-an-llc-incorporated-or-unincorporated
-    - https://www.uschamber.com/co/start/strategy/sole-proprietorship-vs-incorporation
-    - https://portal.311.nyc.gov/article/?kanumber=KA-03067: states LLCs are unincorporated (also stated elsewhere online)
-  + Demographics: 
-    - https://www.pewresearch.org/social-trends/2015/10/22/three-in-ten-u-s-jobs-are-held-by-the-self-employed-and-the-workers-they-hire/
-    - https://www.bls.gov/opub/mlr/2010/09/art2full.pdf
-    - https://www.census.gov/content/dam/Census/library/working-papers/2018/demo/SEHSD-WP2018-28.pdf
-<br>
-* General notes:
-  + Don't think it makes sense to incorporate  income into the regression analyses (e.g., mediation), even just as a sensitivity analysis. The 'decent' income data is only available from 1997-2018, and even that data is categorical and top-coded. Moreover, the top-coding changed over time (75k from 1997-2006; 100k from 2007-2008; and 115k from 2009-2018). Thus, unless we extrapolated or imputed beyond the top-codes, we'd have to use a categorical income variable with a max category of $75k+, which is well below the third quartile of family incomes after adjusting for inflation (and below IBOs' and mgrs' median incomes). The original income data also contains a lot of missingness, and NHIS recommends it be analyzed via imputation methods, which would complicate our approach considerably. 
-  + Too few respondents in minoritized racial/ethnic groups who are IBOs to break out minoritized racial/ethnic groups into finer subgroups (survival estimates very unstable)
-  + Numemps (number of employees at work) only available from 2001-2018 - would be alternative way to classify business owners but I think its categories are too imprecise and limited availability is problematic
-  + Can't identify "chief executives, general and operative managers, and legislators" until 2004 because of limited occupation data before then (can never identify "chief executives" alone, who we've classified as IBOs in the past)
-  + Useful citation regarding occupation and mortality in NHIS: https://www.sciencedirect.com/science/article/pii/S0091743520301535 and http://paa2019.populationassociation.org/uploads/190718
-<br>
-* Methods notes: 
-  + Monitor release of vintage-specific weights  (https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486/12)
-  + When robust=T, weights are treated properly by survfit and coxph functions (as probability or sampling weights rather than frequency weights)
-  + Citations for IPW and survey weighting approach: https://www.ncbi.nlm.nih.gov/labs/pmc/articles/PMC5802372/ and https://journals.sagepub.com/doi/full/10.1177/0193841X20938497
-  
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -84,9 +61,9 @@ dat %>%
 
 #####exclusions
 #exclude those outside age ranges (age has 0.09% missing)
-#exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time); #note, from 2015-2018, only sample adult and sample child participants were eligible for mortality follow-up
+#exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time) #note, from 2015-2018, only sample adult and sample child participants were eligible for mortality follow-up
 #exclude 1997-2000, when there's no data on whether business is incorporated or not
-#we'll exclude 1992 Hispanic oversample (only 3517 additional respondents) (per advice of IPUMS) separately, as we want to include them in sensitivity analyses
+#exclude 1992 Hispanic oversample (only a few thousand respondents) (per advice of IPUMS) separately, as we want to include them in sensitivity analyses
 dat %>%
   filter((age>=25 & age<65) & mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000))) -> dat_sub
 
@@ -205,7 +182,7 @@ dat_sub %>%
 
 # Missingness 
 
-Age missingness is in full dataset among years and samples of interest; missingness for other variables is among those ages 25-64
+Age missingness is in full dataset among years and samples of interest; missingness for other variables is among those ages 25-64.
 
 ```{r message=FALSE, warning=FALSE}
 #age in full dataset
@@ -231,7 +208,7 @@ dat_sub_no_hisp <- dat_sub_no_hisp[complete.cases(dat_sub_no_hisp[,c('age', 'tim
 
 # Descriptives
 
-Weighted and excluding missingness unless otherwise noted
+Weighted and excluding missingness unless otherwise noted.
 
 ## Unweighted and stratified table one 
 
@@ -239,7 +216,7 @@ Weighted and excluding missingness unless otherwise noted
 #vars of interest
 vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'int_year_fin', 'time', 'dead')
 catvars <- c("sex", 'dead')
-nonorm <- c('age', 'year', 'time')
+nonorm <- c('age', 'int_year_fin', 'time')
 
 x <- CreateTableOne(data=dat_sub_no_hisp, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, test=FALSE)
@@ -257,6 +234,15 @@ dat_sub_no_hisp_svy <- svydesign(ids = ~ psu,
                          data=dat_sub_no_hisp)
 
 x <- svyCreateTableOne(data=dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+kable(x) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+## Stratified table one with workers subdivided by occupation
+
+```{r message=FALSE, warning=FALSE}
+x <- svyCreateTableOne(data=dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class_occ', includeNA=FALSE)
 x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
 kable(x) %>%
   kable_styling(c("striped", "condensed"))
@@ -331,7 +317,7 @@ kable(x[3:23,]) %>%
 
 ## Number of employees at work across classes from 2001-2018
 
-Excluding those not working. IBOs 4x as likely as UBOs to be in firms with 10+ employees. It probably makes sense that managers and workers are much more likely than business owners to work in larger firms, since any given firm, regardless of size, will only have one owner (in theory), whereas such firms will have multiple workers. For example, in a society with 5 firms, 4 of which have 5 employees and 1 of which has 1000 employees, 80% of owners will come from firms with 5 employees, but 98% (1000/1020) of workers will come from firms with 1000+ employees.
+Excluding those not working. IBOs 4x as likely as UBOs to be in firms with 10+ employees. It makes sense that managers and workers are much more likely than business owners to work in larger firms, since any given firm, regardless of size, will only have one owner (in theory), whereas such firms will have multiple workers. For example, in a society with 5 firms, 4 of which have 5 employees and 1 of which has 1000 employees, 80% of owners will come from firms with 5 employees, but 98% (1000/1020) of workers will come from firms with 1000+ employees.
 
 ```{r message=FALSE, warning=FALSE}
 x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2001 & numemps!=0 & class!="NLFs"), vars='numemps', factorVars='numemps', strata='class', includeNA=FALSE)
@@ -1134,7 +1120,7 @@ dat_sub_no_hisp %>%
                           family="multinomial",
                           link="logit",
                           numerator=~1,
-                          denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
+                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
                           data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           maxit=1000,
@@ -1188,7 +1174,7 @@ dat_sub_no_hisp %>%
                           family="multinomial",
                           link="logit",
                           numerator=~1,
-                          denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
+                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
                           data=dat_sub_no_hisp,
                           weights=mortwt_f,
                           maxit=1000,
@@ -1209,7 +1195,7 @@ binded_educ <- survdiffed_group(kapped_educ)
 #### IPW survival plots
 
 ```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
-plotted_group(kapped_educ, grpd1=">HS", grpd2="\u2264HS", levelled=c("\u2264HS", ">HS"))
+plotted_group(kapped_educ, grpd1=">HS", grpd2="\u2264HS", levelled=c("\u2264HS", ">HS"), bottom=0.45)
 
 ggsave("educ_survival.png", dpi=600, height=4, width=8.75)
 ```
@@ -1312,7 +1298,7 @@ kable(cbind(tidy(mod_reg, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], c(length
 
 #### Accounting for survey design in overall Cox analyses (adjusting for confounders with IPW)
 
-Basically identical to primary. It makes no difference that we subsetted the dataset by age above rather than within the svycoxph function because age subpopulations appear in all the clusters
+Basically identical to primary. It makes no difference that we subsetted the dataset by age above rather than within the svycoxph function because age subpopulations appear in all the clusters.
 
 ```{r warning=FALSE, message=FALSE}
 dat_sub_no_hisp_svy <- svydesign(ids = ~ psu,
@@ -1344,19 +1330,20 @@ tidy_n(modded=mod_house, bind=binded_house)
 
 ### Including Hispanic oversample to examine effects on point estimates 
 
-Basically identical to primary, as Hispanic oversample is small (<0.5% of full sample).
+Similar to primary, as Hispanic oversample is small (<0.5% of full sample).
 
 #### Distribution of IPW
 
 ```{r warning=FALSE, message=FALSE}
+dat_sub <- dat_sub[complete.cases(dat_sub[,c('age', 'time', 'class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')]),] #exclude missing using primary approach
+
 dat_sub %>%
-  filter(!is.na(class) & !is.na(age)) %>%
   mutate(sw_hisp=ipwpoint(exposure=class,
                           family="multinomial",
                           link="logit",
                           numerator=~1,
                           denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
-                          data=subset(dat_sub, !is.na(class) & !is.na(age)),
+                          data=dat_sub,
                           weights=mortwt_f,
                           maxit=1000,
                           trace=FALSE)$ipw.weights,
@@ -1379,9 +1366,11 @@ tidy_n(modded=mod_hisp, bind=binded_hisp)
 
 ### Excluding NHIS sampling weights from analyses 
 
-Similar to primary analyses, but somewhat attenuated.
+Similar to primary, but generally somewhat attenuated. 
 
-#### Distribution of IPW
+#### Overall
+
+##### Distribution of IPW
 
 ```{r warning=FALSE, message=FALSE}
 dat_sub_no_hisp %>%
@@ -1403,10 +1392,87 @@ mod_over_excl <- coxph(Surv(time,dead)~class, robust=T, w=sw_over_excl, data=dat
 binded_over_excl <- survdiffed(datted=kapped_over_excl)
 ```
 
-#### IPW survival differences and hazard ratios
+##### IPW survival differences and hazard ratios
 
 ```{r}
 tidy_n(modded=mod_over_excl, bind=binded_over_excl)
+```
+
+#### Class-by-year stratification - 1986-1996 interview years w/ f/u through end of 2004 vs 2001-2019 interview years w/ f/u through end of 2019
+
+##### Distribution of IPW
+
+###### 1986-1996
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin<=1996) %>%
+  mutate(sw_excl=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights)  -> dat_sub_no_hisp_1986
+
+summary(dat_sub_no_hisp_1986$sw_excl)
+```
+
+###### 2001-2019
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin>=2001) %>%
+  mutate(sw_excl=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights)  -> dat_sub_no_hisp_2001
+
+summary(dat_sub_no_hisp_2001$sw_excl)
+```
+
+##### Survival 
+
+```{r warning=FALSE, message=FALSE}
+#early
+kapped_early <- survfit(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_1986, se=T) 
+mod_early <- coxph(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_1986)
+binded_early <- survdiffed(kapped_early, timed=19)
+
+#late
+kapped_late <- survfit(Surv(time,dead)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_2001, se=T)
+mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_2001)
+binded_late <- survdiffed(kapped_late, timed=19)
+```
+
+###### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted(datted=kapped_early,
+        classed_repped=19,
+        grpd="1986-1996 with follow-up through 2004", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11)))  +
+plotted(datted=kapped_late,
+        classed_repped=19,
+        grpd="2001-2019 with follow-up through 2019", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11))) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+```
+
+###### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: IBOs (1986-1996 subset)")
+tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: IBOs (2001-2019 subset)")
 ```
 
 ### Class by year interaction with regression adjustment instead of period stratification and IPW
