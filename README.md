@@ -4,8 +4,4 @@ Code for analyses presented in:<br />
 <br />
 “Eisenberg‑Guyot J, Finsaas MC, Prins SJ. Dead labor: Classed, gendered, and racialized mortality inequities in the United States. American Journal of Public Health (2022).”<br />
 <br />
-1. The NHIS IPUMS data containing harmonized sociodemographic and mortality data can be downloaded from IPUMS (https://healthsurveys.ipums.org/). Relevant variables are provided in the IPUMS codebook "ipums_codebook.pdf"<br />
-<br />
-2. The script "analysis_12_1_22.rmd" performs the analyses presented in the paper.<br />
-<br />
-3. The html file "analysis_12_1_22.html" contains output from the analyses run via "analysis_12_1_22.rmd".
+The NHIS IPUMS data containing harmonized sociodemographic and mortality data can be downloaded from IPUMS (https://healthsurveys.ipums.org/). Relevant variables are provided in the IPUMS codebook "ipums_codebook.pdf". The script "analysis_12_1_22.rmd" performs the analyses presented in the paper. The html file "analysis_12_1_22.html" contains output from the analyses run via "analysis_12_1_22.rmd".
