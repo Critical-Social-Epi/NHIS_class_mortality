@@ -16,11 +16,11 @@ always_allow_html: true
   + Descriptive analyses of class and mortality in the cross-sectional 1986-2018 NHIS with mortality follow-up through the end of 2019. 
 <br>
 * Coding of classes:
-  + Incorporated business owners are those who are self-employed in an incorporated business
-  + Unincorporated business owners are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few in the latter)
-  + Managers (mgrs) are those who are not self-employed but who are employed and who have an executive, administrative, or managerial occupation
-  + Workers (wrks) are those who are unemployed/"not employed" OR who are employed but do not have an executive, administrative, or managerial occupation
-  + Not in the labor force (NLFs) are those who are "not in the labor force" 
+  + Incorporated business owners are those who are self-employed in an incorporated business.
+  + Unincorporated business owners are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few in the latter).
+  + Managers (mgrs) are those who are not self-employed but who are employed and who have an executive, administrative, or managerial occupation.
+  + Workers (wrks) are those who are unemployed/"not employed" OR who are employed but do not have an executive, administrative, or managerial occupation.
+  + Not in the labor force (NLFs) are those who are "not in the labor force" .
 <br>
 
 
@@ -4091,7 +4091,7 @@ tidy_n(modded=mod_house, bind=binded_house)
 
 ### Including Hispanic oversample to examine effects on point estimates 
 
-Basically identical to primary, as Hispanic oversample is small (<0.5% of full sample).
+Similar to primary, as Hispanic oversample is small (<0.5% of full sample).
 
 #### Distribution of IPW
 
@@ -4199,7 +4199,7 @@ tidy_n(modded=mod_hisp, bind=binded_hisp)
 
 ### Excluding NHIS sampling weights from analyses 
 
-Similar to primary analyses, but somewhat attenuated. Period-stratified survival curves more similar to primary analyses.
+Similar to primary, but generally somewhat attenuated. 
 
 #### Overall
 
