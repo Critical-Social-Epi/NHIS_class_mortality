@@ -49,6 +49,7 @@ library(ggmosaic)
 library(multcomp)
 options(scipen=999)
 options(knitr.kable.NA = '')
+set.cobalt.options(binary="raw", continuous="std") #per https://cran.r-project.org/web/packages/cobalt/vignettes/cobalt.html#distinguishing-continuous-and-binary-covariates
 
 #load ipums data
 dat <- fread(here('ipums_dat_1986_2018.csv'))
@@ -584,23 +585,23 @@ within_group_ests <- function(datted,
   
   #pb-cap
   pb <- 100*(point$surv[7] - point$surv[6])
-  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
-  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[6]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[6]^2))
   
   #mc-cap
   mc <- 100*(point$surv[8] - point$surv[6])
-  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
-  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[6]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[6]^2))
   
   #worker-cap
   wc <- 100*(point$surv[9] - point$surv[6])
-  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
-  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[9]^2 + point$std.err[6]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[9]^2 + point$std.err[6]^2))
   
   #nilf-cap
   nc <- 100*(point$surv[10] - point$surv[6])
-  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
-  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[10]^2 + point$std.err[6]^2))
+  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[10]^2 + point$std.err[6]^2))
   
   sdiffs <- rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(nc, nc_lower, nc_upper))
   
@@ -705,6 +706,8 @@ summary(dat_sub_no_hisp$sw_sub)
 
 #### Covariate balance after weighting
 
+SMDs for continuous variables; MDs for binary/categorical variables.
+
 ##### Overall
 
 ```{r warning=FALSE, message=FALSE, fig.height=5, fig.width=9}
@@ -714,14 +717,13 @@ love.plot(covs,
           treat=dat_sub_no_hisp$class, 
           weights=dat_sub_no_hisp$sw_over, 
           threshold=c(m=0.1), 
-          binary='std',
           which=.all) +
   facet_wrap(~treat, nrow=2) +
   scale_color_manual(values=c("#77AADD", "#114477")) +
   theme_light() +
   theme(legend.title=element_blank(), plot.title=element_blank(), 
         strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-  scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender"))) 
 ```
 
 ##### Subdivided 
@@ -733,14 +735,13 @@ love.plot(covs,
           treat=dat_sub_no_hisp$class_occ, 
           weights=dat_sub_no_hisp$sw_sub, 
           threshold=c(m=0.1), 
-          binary='std',
           which=.all) +
   facet_wrap(~treat, nrow=4) +
   scale_color_manual(values=c("#77AADD", "#114477")) +
   theme_light() +
   theme(legend.title=element_blank(), plot.title=element_blank(), 
         strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-  scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender"))) 
 ```
 
 #### Survival 
@@ -832,6 +833,8 @@ summary(dat_sub_no_hisp$sw_sub_adj)
 
 #### Covariate balance after weighting
 
+SMDs for continuous variables; MDs for binary/categorical variables.
+
 ##### Overall
 
 ```{r warning=FALSE, message=FALSE, fig.height=8, fig.width=9.5}
@@ -841,14 +844,13 @@ love.plot(covs,
           treat=dat_sub_no_hisp$class, 
           weights=dat_sub_no_hisp$sw_over_adj, 
           threshold=c(m=0.1), 
-          binary='std',
           which=.all) +
   facet_wrap(~treat, nrow=2) +
   scale_color_manual(values=c("#77AADD", "#114477")) +
   theme_light() +
   theme(legend.title=element_blank(), plot.title=element_blank(), 
         strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-  scale_y_discrete(labels=rev(c("Age", "Year", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
                                 "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
@@ -861,14 +863,13 @@ love.plot(covs,
           treat=dat_sub_no_hisp$class_occ, 
           weights=dat_sub_no_hisp$sw_sub_adj, 
           threshold=c(m=0.1), 
-          binary='std',
           which=.all) +
   facet_wrap(~treat, nrow=4) +
   scale_color_manual(values=c("#77AADD", "#114477")) +
   theme_light() +
   theme(legend.title=element_blank(), plot.title=element_blank(), 
         strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-  scale_y_discrete(labels=rev(c("Age", "Year", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
                                 "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
@@ -918,7 +919,7 @@ tidy_n(modded=mod_sub, bind=binded_sub, rows=1:7, nad=6)
 
 ## Class-by-year stratification - 1986-1996 interview years w/ f/u through end of 2004 vs 2001-2019 interview years w/ f/u through end of 2019
 
-### Less-adjusted
+### Less-adjusted (age, gender, year)
 
 #### Distribution of IPW
 
@@ -1001,7 +1002,7 @@ tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: IBOs (1986-1996 subs
 tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: IBOs (2001-2019 subset)")
 ```
 
-### More-adjusted
+### More-adjusted (age, gender, year, education, marital status, region, and racialized group)
 
 #### Distribution of IPW
 
@@ -1330,12 +1331,12 @@ tidy_n(modded=mod_house, bind=binded_house)
 
 ### Including Hispanic oversample to examine effects on point estimates 
 
-Similar to primary, as Hispanic oversample is small (<0.5% of full sample).
+Similar to primary, as Hispanic oversample is very small.
 
 #### Distribution of IPW
 
 ```{r warning=FALSE, message=FALSE}
-dat_sub <- dat_sub[complete.cases(dat_sub[,c('age', 'time', 'class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')]),] #exclude missing using primary approach
+dat_sub <- dat_sub[complete.cases(dat_sub[,c('age', 'time', 'class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')]),] #exclude missingness using approach from primary analyses
 
 dat_sub %>%
   mutate(sw_hisp=ipwpoint(exposure=class,
@@ -1353,8 +1354,8 @@ summary(dat_sub_hisp_overall$sw_hisp)
 ```
 
 ```{r warning=FALSE, message=FALSE}
-kapped_hisp <- survfit(Surv(time,dead)~class, robust=T, w=sw_hisp, data=dat_sub_hisp_overall, se=T)
-mod_hisp <- coxph(Surv(time,dead)~class, robust=T, w=sw_hisp, data=dat_sub_hisp_overall)
+kapped_hisp <- survfit(Surv(time,dead)~class, robust=T, w=sw_f_hisp, data=dat_sub_hisp_overall, se=T)
+mod_hisp <- coxph(Surv(time,dead)~class, robust=T, w=sw_f_hisp, data=dat_sub_hisp_overall)
 binded_hisp <- survdiffed(kapped_hisp)
 ```
 
@@ -1519,7 +1520,7 @@ int_year_func(modded=mod_spline_adj)
 
 ### Including employed "chief executives, general and operative managers, and legislators" in IBO class rather than managerial class from 2005-2018
 
-HR similar to 2001-2019 analysis above. IBO class increases from 5282 to 7650 with change (2368 respondents move from managerial class to IBO class).
+HR similar to 2001-2019 analysis above. IBO class increases from 5282 to 7650 with change (2368 respondents move from managerial class to IBO class). A bit more missingness in class measure because using alternative occupation variable that contains "chief executives, general and operative managers, and legislators" category. 
 
 ```{r warning=FALSE, message=FALSE}
 dat_sub_no_hisp %>%

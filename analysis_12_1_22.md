@@ -48,6 +48,7 @@ library(ggmosaic)
 library(multcomp)
 options(scipen=999)
 options(knitr.kable.NA = '')
+set.cobalt.options(binary="raw", continuous="std") #per https://cran.r-project.org/web/packages/cobalt/vignettes/cobalt.html#distinguishing-continuous-and-binary-covariates
 
 #load ipums data
 dat <- fread(here('ipums_dat_1986_2018.csv'))
@@ -1802,23 +1803,23 @@ within_group_ests <- function(datted,
   
   #pb-cap
   pb <- 100*(point$surv[7] - point$surv[6])
-  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
-  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[6]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[6]^2))
   
   #mc-cap
   mc <- 100*(point$surv[8] - point$surv[6])
-  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
-  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[6]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[6]^2))
   
   #worker-cap
   wc <- 100*(point$surv[9] - point$surv[6])
-  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
-  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[9]^2 + point$std.err[6]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[9]^2 + point$std.err[6]^2))
   
   #nilf-cap
   nc <- 100*(point$surv[10] - point$surv[6])
-  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
-  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[10]^2 + point$std.err[6]^2))
+  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[10]^2 + point$std.err[6]^2))
   
   sdiffs <- rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(nc, nc_lower, nc_upper))
   
@@ -1935,6 +1936,8 @@ summary(dat_sub_no_hisp$sw_sub)
 
 #### Covariate balance after weighting
 
+SMDs for continuous variables; MDs for binary/categorical variables.
+
 ##### Overall
 
 
@@ -1945,14 +1948,13 @@ love.plot(covs,
           treat=dat_sub_no_hisp$class, 
           weights=dat_sub_no_hisp$sw_over, 
           threshold=c(m=0.1), 
-          binary='std',
           which=.all) +
   facet_wrap(~treat, nrow=2) +
   scale_color_manual(values=c("#77AADD", "#114477")) +
   theme_light() +
   theme(legend.title=element_blank(), plot.title=element_blank(), 
         strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-  scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender"))) 
 ```
 
 ![](analysis_12_1_22_files/figure-html/unnamed-chunk-16-1.png)<!-- -->
@@ -1967,14 +1969,13 @@ love.plot(covs,
           treat=dat_sub_no_hisp$class_occ, 
           weights=dat_sub_no_hisp$sw_sub, 
           threshold=c(m=0.1), 
-          binary='std',
           which=.all) +
   facet_wrap(~treat, nrow=4) +
   scale_color_manual(values=c("#77AADD", "#114477")) +
   theme_light() +
   theme(legend.title=element_blank(), plot.title=element_blank(), 
         strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-  scale_y_discrete(labels=rev(c("Age", "Year", "Gender"))) 
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender"))) 
 ```
 
 ![](analysis_12_1_22_files/figure-html/unnamed-chunk-17-1.png)<!-- -->
@@ -2248,6 +2249,8 @@ summary(dat_sub_no_hisp$sw_sub_adj)
 
 #### Covariate balance after weighting
 
+SMDs for continuous variables; MDs for binary/categorical variables.
+
 ##### Overall
 
 
@@ -2258,14 +2261,13 @@ love.plot(covs,
           treat=dat_sub_no_hisp$class, 
           weights=dat_sub_no_hisp$sw_over_adj, 
           threshold=c(m=0.1), 
-          binary='std',
           which=.all) +
   facet_wrap(~treat, nrow=2) +
   scale_color_manual(values=c("#77AADD", "#114477")) +
   theme_light() +
   theme(legend.title=element_blank(), plot.title=element_blank(), 
         strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-  scale_y_discrete(labels=rev(c("Age", "Year", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
                                 "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
@@ -2281,14 +2283,13 @@ love.plot(covs,
           treat=dat_sub_no_hisp$class_occ, 
           weights=dat_sub_no_hisp$sw_sub_adj, 
           threshold=c(m=0.1), 
-          binary='std',
           which=.all) +
   facet_wrap(~treat, nrow=4) +
   scale_color_manual(values=c("#77AADD", "#114477")) +
   theme_light() +
   theme(legend.title=element_blank(), plot.title=element_blank(), 
         strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
-  scale_y_discrete(labels=rev(c("Age", "Year", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
                                 "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
 ```
 
@@ -2508,7 +2509,7 @@ tidy_n(modded=mod_sub, bind=binded_sub, rows=1:7, nad=6)
 
 ## Class-by-year stratification - 1986-1996 interview years w/ f/u through end of 2004 vs 2001-2019 interview years w/ f/u through end of 2019
 
-### Less-adjusted
+### Less-adjusted (age, gender, year)
 
 #### Distribution of IPW
 
@@ -2741,7 +2742,7 @@ tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: IBOs (2001-2019 subset
 </tbody>
 </table>
 
-### More-adjusted
+### More-adjusted (age, gender, year, education, marital status, region, and racialized group)
 
 #### Distribution of IPW
 
@@ -3213,8 +3214,8 @@ within_group_ests(datted=kapped_gend, modded=mod_gend, term1="class_genderFemale
    <td style="text-align:right;"> 1.12 </td>
    <td style="text-align:right;"> 1.39 </td>
    <td style="text-align:right;"> -5.5 </td>
-   <td style="text-align:right;"> -7.5 </td>
-   <td style="text-align:right;"> -3.4 </td>
+   <td style="text-align:right;"> -8.4 </td>
+   <td style="text-align:right;"> -2.5 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMgrs </td>
@@ -3222,8 +3223,8 @@ within_group_ests(datted=kapped_gend, modded=mod_gend, term1="class_genderFemale
    <td style="text-align:right;"> 0.95 </td>
    <td style="text-align:right;"> 1.17 </td>
    <td style="text-align:right;"> -1.2 </td>
-   <td style="text-align:right;"> -3.2 </td>
-   <td style="text-align:right;"> 0.8 </td>
+   <td style="text-align:right;"> -4.1 </td>
+   <td style="text-align:right;"> 1.6 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classWrks </td>
@@ -3231,8 +3232,8 @@ within_group_ests(datted=kapped_gend, modded=mod_gend, term1="class_genderFemale
    <td style="text-align:right;"> 1.18 </td>
    <td style="text-align:right;"> 1.44 </td>
    <td style="text-align:right;"> -6.2 </td>
-   <td style="text-align:right;"> -8.0 </td>
-   <td style="text-align:right;"> -4.5 </td>
+   <td style="text-align:right;"> -8.9 </td>
+   <td style="text-align:right;"> -3.6 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNLFs </td>
@@ -3240,8 +3241,8 @@ within_group_ests(datted=kapped_gend, modded=mod_gend, term1="class_genderFemale
    <td style="text-align:right;"> 2.00 </td>
    <td style="text-align:right;"> 2.44 </td>
    <td style="text-align:right;"> -15.6 </td>
-   <td style="text-align:right;"> -17.8 </td>
-   <td style="text-align:right;"> -13.5 </td>
+   <td style="text-align:right;"> -18.3 </td>
+   <td style="text-align:right;"> -12.9 </td>
   </tr>
 </tbody>
 </table>
@@ -3393,8 +3394,8 @@ within_group_ests(datted=kapped_race, modded=mod_race, term1="class_pocPOC", cap
    <td style="text-align:right;"> 1.34 </td>
    <td style="text-align:right;"> 1.80 </td>
    <td style="text-align:right;"> -11.5 </td>
-   <td style="text-align:right;"> -13.4 </td>
-   <td style="text-align:right;"> -9.6 </td>
+   <td style="text-align:right;"> -16.4 </td>
+   <td style="text-align:right;"> -6.7 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMgrs </td>
@@ -3402,8 +3403,8 @@ within_group_ests(datted=kapped_race, modded=mod_race, term1="class_pocPOC", cap
    <td style="text-align:right;"> 0.97 </td>
    <td style="text-align:right;"> 1.31 </td>
    <td style="text-align:right;"> -5.1 </td>
-   <td style="text-align:right;"> -7.0 </td>
-   <td style="text-align:right;"> -3.3 </td>
+   <td style="text-align:right;"> -10.1 </td>
+   <td style="text-align:right;"> -0.2 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classWrks </td>
@@ -3411,8 +3412,8 @@ within_group_ests(datted=kapped_race, modded=mod_race, term1="class_pocPOC", cap
    <td style="text-align:right;"> 1.33 </td>
    <td style="text-align:right;"> 1.75 </td>
    <td style="text-align:right;"> -10.1 </td>
-   <td style="text-align:right;"> -11.8 </td>
-   <td style="text-align:right;"> -8.5 </td>
+   <td style="text-align:right;"> -14.2 </td>
+   <td style="text-align:right;"> -6.1 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNLFs </td>
@@ -3420,8 +3421,8 @@ within_group_ests(datted=kapped_race, modded=mod_race, term1="class_pocPOC", cap
    <td style="text-align:right;"> 2.56 </td>
    <td style="text-align:right;"> 3.36 </td>
    <td style="text-align:right;"> -22.6 </td>
-   <td style="text-align:right;"> -24.4 </td>
-   <td style="text-align:right;"> -20.8 </td>
+   <td style="text-align:right;"> -26.8 </td>
+   <td style="text-align:right;"> -18.5 </td>
   </tr>
 </tbody>
 </table>
@@ -3624,8 +3625,8 @@ within_group_ests(datted=kapped_educ, modded=mod_educ, term1="class_educ=HS", ca
    <td style="text-align:right;"> 1.10 </td>
    <td style="text-align:right;"> 1.32 </td>
    <td style="text-align:right;"> -5.7 </td>
-   <td style="text-align:right;"> -7.9 </td>
-   <td style="text-align:right;"> -3.5 </td>
+   <td style="text-align:right;"> -8.7 </td>
+   <td style="text-align:right;"> -2.7 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMgrs </td>
@@ -3633,8 +3634,8 @@ within_group_ests(datted=kapped_educ, modded=mod_educ, term1="class_educ=HS", ca
    <td style="text-align:right;"> 0.95 </td>
    <td style="text-align:right;"> 1.17 </td>
    <td style="text-align:right;"> -2.2 </td>
-   <td style="text-align:right;"> -4.2 </td>
-   <td style="text-align:right;"> -0.2 </td>
+   <td style="text-align:right;"> -5.4 </td>
+   <td style="text-align:right;"> 1.0 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classWrks </td>
@@ -3642,8 +3643,8 @@ within_group_ests(datted=kapped_educ, modded=mod_educ, term1="class_educ=HS", ca
    <td style="text-align:right;"> 1.16 </td>
    <td style="text-align:right;"> 1.38 </td>
    <td style="text-align:right;"> -5.8 </td>
-   <td style="text-align:right;"> -7.7 </td>
-   <td style="text-align:right;"> -3.9 </td>
+   <td style="text-align:right;"> -8.6 </td>
+   <td style="text-align:right;"> -3.0 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNLFs </td>
@@ -3651,8 +3652,8 @@ within_group_ests(datted=kapped_educ, modded=mod_educ, term1="class_educ=HS", ca
    <td style="text-align:right;"> 2.23 </td>
    <td style="text-align:right;"> 2.66 </td>
    <td style="text-align:right;"> -18.3 </td>
-   <td style="text-align:right;"> -20.4 </td>
-   <td style="text-align:right;"> -16.3 </td>
+   <td style="text-align:right;"> -21.2 </td>
+   <td style="text-align:right;"> -15.5 </td>
   </tr>
 </tbody>
 </table>
@@ -4091,13 +4092,13 @@ tidy_n(modded=mod_house, bind=binded_house)
 
 ### Including Hispanic oversample to examine effects on point estimates 
 
-Similar to primary, as Hispanic oversample is small (<0.5% of full sample).
+Similar to primary, as Hispanic oversample is very small.
 
 #### Distribution of IPW
 
 
 ```r
-dat_sub <- dat_sub[complete.cases(dat_sub[,c('age', 'time', 'class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')]),] #exclude missing using primary approach
+dat_sub <- dat_sub[complete.cases(dat_sub[,c('age', 'time', 'class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')]),] #exclude missingness using approach from primary analyses
 
 dat_sub %>%
   mutate(sw_hisp=ipwpoint(exposure=class,
@@ -4121,8 +4122,8 @@ summary(dat_sub_hisp_overall$sw_hisp)
 
 
 ```r
-kapped_hisp <- survfit(Surv(time,dead)~class, robust=T, w=sw_hisp, data=dat_sub_hisp_overall, se=T)
-mod_hisp <- coxph(Surv(time,dead)~class, robust=T, w=sw_hisp, data=dat_sub_hisp_overall)
+kapped_hisp <- survfit(Surv(time,dead)~class, robust=T, w=sw_f_hisp, data=dat_sub_hisp_overall, se=T)
+mod_hisp <- coxph(Surv(time,dead)~class, robust=T, w=sw_f_hisp, data=dat_sub_hisp_overall)
 binded_hisp <- survdiffed(kapped_hisp)
 ```
 
@@ -4156,42 +4157,42 @@ tidy_n(modded=mod_hisp, bind=binded_hisp)
 <tbody>
   <tr>
    <td style="text-align:left;"> classUBOs </td>
-   <td style="text-align:right;"> 1.25 </td>
-   <td style="text-align:right;"> 1.20 </td>
-   <td style="text-align:right;"> 1.31 </td>
-   <td style="text-align:right;"> -6.0 </td>
-   <td style="text-align:right;"> -7.7 </td>
-   <td style="text-align:right;"> -4.3 </td>
+   <td style="text-align:right;"> 1.28 </td>
+   <td style="text-align:right;"> 1.21 </td>
+   <td style="text-align:right;"> 1.36 </td>
+   <td style="text-align:right;"> -6.3 </td>
+   <td style="text-align:right;"> -8.1 </td>
+   <td style="text-align:right;"> -4.6 </td>
    <td style="text-align:right;"> 915268 </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classMgrs </td>
-   <td style="text-align:right;"> 1.00 </td>
-   <td style="text-align:right;"> 0.95 </td>
-   <td style="text-align:right;"> 1.04 </td>
-   <td style="text-align:right;"> -0.9 </td>
-   <td style="text-align:right;"> -2.5 </td>
-   <td style="text-align:right;"> 0.8 </td>
+   <td style="text-align:right;"> 0.99 </td>
+   <td style="text-align:right;"> 0.93 </td>
+   <td style="text-align:right;"> 1.05 </td>
+   <td style="text-align:right;"> -1.0 </td>
+   <td style="text-align:right;"> -2.7 </td>
+   <td style="text-align:right;"> 0.7 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classWrks </td>
    <td style="text-align:right;"> 1.29 </td>
-   <td style="text-align:right;"> 1.24 </td>
-   <td style="text-align:right;"> 1.35 </td>
-   <td style="text-align:right;"> -6.7 </td>
-   <td style="text-align:right;"> -8.2 </td>
-   <td style="text-align:right;"> -5.2 </td>
+   <td style="text-align:right;"> 1.22 </td>
+   <td style="text-align:right;"> 1.36 </td>
+   <td style="text-align:right;"> -6.6 </td>
+   <td style="text-align:right;"> -8.1 </td>
+   <td style="text-align:right;"> -5.0 </td>
    <td style="text-align:right;">  </td>
   </tr>
   <tr>
    <td style="text-align:left;"> classNLFs </td>
-   <td style="text-align:right;"> 2.30 </td>
-   <td style="text-align:right;"> 2.21 </td>
-   <td style="text-align:right;"> 2.41 </td>
-   <td style="text-align:right;"> -19.1 </td>
-   <td style="text-align:right;"> -20.6 </td>
-   <td style="text-align:right;"> -17.5 </td>
+   <td style="text-align:right;"> 2.57 </td>
+   <td style="text-align:right;"> 2.44 </td>
+   <td style="text-align:right;"> 2.72 </td>
+   <td style="text-align:right;"> -19.4 </td>
+   <td style="text-align:right;"> -21.0 </td>
+   <td style="text-align:right;"> -17.7 </td>
    <td style="text-align:right;">  </td>
   </tr>
 </tbody>
@@ -4856,7 +4857,7 @@ int_year_func(modded=mod_spline_adj)
 
 ### Including employed "chief executives, general and operative managers, and legislators" in IBO class rather than managerial class from 2005-2018
 
-HR similar to 2001-2019 analysis above. IBO class increases from 5282 to 7650 with change (2368 respondents move from managerial class to IBO class).
+HR similar to 2001-2019 analysis above. IBO class increases from 5282 to 7650 with change (2368 respondents move from managerial class to IBO class). A bit more missingness in class measure because using alternative occupation variable that contains "chief executives, general and operative managers, and legislators" category. 
 
 
 ```r
