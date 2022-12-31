@@ -1,0 +1,1611 @@
+---
+title: "Dead labor: classed, gendered, and racialized mortality inequities in the United States"
+author: "Jerzy Eisenberg-Guyot"
+date: "`r format(Sys.time(), '%B %Y')`"
+output: 
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_float: true
+    keep_md: true
+    toc_depth: 6
+always_allow_html: true
+---
+
+* Overview: 
+  + Descriptive analyses of class and mortality in the cross-sectional 1986-2018 NHIS with mortality follow-up through the end of 2019. 
+<br>
+* Coding of classes:
+  + Incorporated business owners are those who are self-employed in an incorporated business.
+  + Unincorporated business owners are those who are self-employed in an unincorporated business or working without pay in a family business/farm (very few in the latter).
+  + Managers (mgrs) are those who are not self-employed but who are employed and who have an executive, administrative, or managerial occupation.
+  + Workers (wrks) are those who are unemployed/"not employed" OR who are employed but do not have an executive, administrative, or managerial occupation.
+  + Not in the labor force (NLFs) are those who are "not in the labor force" .
+<br>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r warning=FALSE, message=FALSE}
+library(dplyr)
+library(data.table)
+library(here)
+library(survival)
+library(rms)
+library(broom)
+library(Rcpp)
+library(survey)
+library(kableExtra)
+library(tableone)
+library(survminer)
+library(ipw)
+library(directlabels)
+library(RColorBrewer)
+library(patchwork)
+library(cobalt)
+library(naniar)
+library(ggmosaic)
+library(multcomp)
+options(scipen=999)
+options(knitr.kable.NA = '')
+set.cobalt.options(binary="raw", continuous="std") #per https://cran.r-project.org/web/packages/cobalt/vignettes/cobalt.html#distinguishing-continuous-and-binary-covariates
+
+#load ipums data
+dat <- fread(here('ipums_dat_1986_2018.csv'))
+
+#make all variable names lowercase
+#sort data by nhispid to keep results consistent across runs, as output from ipw package is (very minorly) affected by observation order
+dat %>%
+  rename_all(tolower) %>%
+  arrange(nhispid) -> dat
+
+#####exclusions
+#exclude those outside age ranges (age has 0.09% missing)
+#exclude those ineligible for mortality follow-up and those <25 or 65+ and those who aren't sample adults from 1997-on (occ1995 and classwk not available for others after that time) #note, from 2015-2018, only sample adult and sample child participants were eligible for mortality follow-up
+#exclude 1997-2000, when there's no data on whether business is incorporated or not
+#exclude 1992 Hispanic oversample (only a few thousand respondents) (per advice of IPUMS) separately, as we want to include them in sensitivity analyses
+dat %>%
+  filter((age>=25 & age<65) & mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000))) -> dat_sub
+
+#make variables
+dat_sub %>%
+  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata, nhispid, nhishid))),
+            ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 997, 999, 7777, 8888, 9998, 9999), NA, .)) %>%
+  mutate(classwk2=ifelse(classwk2 %in% (7:9), NA, classwk2), #these are real values in some other variables so we'll reset them here
+         jobsecincorp=ifelse(jobsecincorp %in% (7:9), NA, jobsecincorp),
+         racesr=ifelse(racesr==900, NA, racesr),
+         lamtwrk=ifelse(lamtwrk %in% 7:9, NA, lamtwrk)) %>%
+  #per IPUMS's advice, use mortwt from 1986-1996 and mortwtsa from 1997-on: https://forum.ipums.org/t/weighting-when-using-pooling-1986-2014-nhis-linked-mortality-files/4486
+  mutate(mortwt_f=ifelse(year<=1996, mortwt, mortwtsa),
+         hispanic_oversample=ifelse((year==1992 & substr(nhispid, 1, 4)==1991), 1, 0),
+         int_year_fin=ifelse(year<2001, year, #1986-1996, separate interview year unavailable
+                             ifelse(year>=2001 & !is.na(intervwyr), intervwyr, year)), #if interview year is missing (<0.1%), assume it happened in survey-wave year (true in >99% of cases)
+         dead=ifelse(mortstat==1, 1, 0),
+         time=ifelse(dead==0, 2020 - int_year_fin, mortdody + 1 - int_year_fin), #deaths thru end of 2019, ie, 2020; assume deaths occurred at end of each year (1986 deaths occurred at end of 1986, ie, 1987)
+         dead_86_96_05=ifelse(int_year_fin>1996, NA, #time and death indicators for 1986-1996 panel
+                              ifelse(int_year_fin<=1996 & (is.na(mortdody) | mortdody>2004), 0,
+                                    ifelse(int_year_fin<=1996 & mortdody<=2004, 1, NA))),
+         time_86_96_05=ifelse(int_year_fin>1996, NA,
+                              ifelse(dead_86_96_05==1, mortdody + 1 - int_year_fin,
+                                     ifelse(dead_86_96_05==0, 2005-int_year_fin, NA))),
+         race=ifelse(racesr==100, "White", 
+                     ifelse(racesr==200, "Black", "Other")),
+         hispeth_bin=ifelse(hispeth!=10, 1, 0),
+         race_h=factor(ifelse(hispeth!=10, "Hispanic",
+                              ifelse(hispeth==10 & race=="White", "NH white",
+                                     ifelse(hispeth==10 & race=="Black", "NH black", "NH other"))), levels=c("NH white", "NH black", "Hispanic", "NH other")),
+         poc=ifelse(race_h=="NH white", "NH white", "POC"),
+         sex=ifelse(sex==1, "male", "female"),
+         race_h_sex=factor(ifelse(race_h=="NH white" & sex=="male", "NH white men",
+                                  ifelse(race_h=="NH white" & sex=="female", "NH white women",
+                                         ifelse(race_h=="NH black" & sex=="male", "NH black men",
+                                                ifelse(race_h=="NH black" & sex=="female", "NH black women",
+                                                       ifelse(race_h=="Hispanic" & sex=="male", "Hispanic men",
+                                                              ifelse(race_h=="Hispanic" & sex=="female", "Hispanic women",
+                                                                     ifelse(race_h=="NH other" & sex=="male", "NH other men", "NH other women"))))))),
+                           levels=c("NH white men", "NH white women", "NH black men", "NH black women", "Hispanic men", "Hispanic women", "NH other men", "NH other women")),
+         educ=factor(ifelse(educrec1<13, "<HS",
+                            ifelse(educrec1==13, "HS",
+                                   ifelse(educrec1==14, "Some college", "College+"))), levels=c("<HS", "HS", "Some college", "College+")),
+         marital_tri=factor(ifelse(marstat %in% 10:12, "Married",
+                                   ifelse(marstat %in% 20:40, "Widowed/divorced/separated", 
+                                          ifelse(marstat==50, "Single", NA))), levels=c("Married", "Single", "Widowed/divorced/separated")),
+         region=ifelse(region==1, "NE", 
+                       ifelse(region==2, "MW",
+                              ifelse(region==3, "S", "W"))),
+         incimp1_rev=ifelse(year<2007, NA,
+                            ifelse(incimp1>66, 66, incimp1)),
+         managers=ifelse(occ1995>=102 & occ1995<=104, 1, 0),
+         class=factor(ifelse(empstat==220, "NLFs",
+                             ifelse((empstat>=200 & empstat<=214) | (year<2001 & classwk>=20 & classwk<=34 & managers!=1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers!=1), "Wrks",
+                                    ifelse((year<2001 & classwk>=20 & classwk<=34 & managers==1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers==1), "Mgrs",
+                                           ifelse((year<2001 & classwk==41) | (year>=2001 & classwk2==5 & jobsecincorp==2), "IBOs",
+                                                  ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "UBOs", NA))))), 
+                     levels=c("IBOs", "UBOs", "Mgrs", "Wrks", "NLFs")),
+         class_gender=factor(ifelse(class=="Wrks" & sex=="male", "Male wrks",
+                                    ifelse(class=="Wrks" & sex=="female", "Female wrks",
+                                           ifelse(class=="Mgrs" & sex=="male", "Male mgrs",
+                                                  ifelse(class=="Mgrs" & sex=="female", "Female mgrs",
+                                                         ifelse(class=="UBOs" & sex=="male", "Male UBOs",
+                                                                ifelse(class=="UBOs" & sex=="female", "Female UBOs",
+                                                                       ifelse(class=="IBOs" & sex=="male", "Male IBOs",
+                                                                              ifelse(class=="IBOs" & sex=="female", "Female IBOs",
+                                                                                     ifelse(class=="NLFs" & sex=="male", "Male NLFs",
+                                                                                            ifelse(class=="NLFs" & sex=="female", "Female NLFs", NA)))))))))),
+                             levels=c("Male IBOs", "Male UBOs", "Male mgrs", "Male wrks", "Male NLFs",
+                                      "Female IBOs", "Female UBOs", "Female mgrs", "Female wrks", "Female NLFs")),
+         class_poc=factor(ifelse(class=="Wrks" & poc=="NH white", "NH white wrks",
+                                 ifelse(class=="Wrks" & poc=="POC", "POC wrks",
+                                        ifelse(class=="Mgrs" & poc=="NH white", "NH white mgrs",
+                                               ifelse(class=="Mgrs" & poc=="POC", "POC mgrs",
+                                                      ifelse(class=="UBOs" & poc=="NH white", "NH white UBOs",
+                                                             ifelse(class=="UBOs" & poc=="POC", "POC UBOs",
+                                                                    ifelse(class=="IBOs" & poc=="NH white", "NH white IBOs",
+                                                                           ifelse(class=="IBOs" & poc=="POC", "POC IBOs", 
+                                                                                  ifelse(class=="NLFs" & poc=="NH white", "NH white NLFs", 
+                                                                                         ifelse(class=="NLFs" & poc=="POC", "POC NLFs", NA)))))))))),
+                          levels=c("NH white IBOs", "NH white UBOs", "NH white mgrs", "NH white wrks", "NH white NLFs",
+                                   "POC IBOs", "POC UBOs", "POC mgrs", "POC wrks", "POC NLFs")),
+         class_educ=factor(ifelse(class=="Wrks" & (educ=="<HS" | educ=="HS"), "\u2264HS wrks",
+                                 ifelse(class=="Wrks" & (educ=="Some college" | educ=="College+"), ">HS wrks",
+                                        ifelse(class=="Mgrs" & (educ=="<HS" | educ=="HS"), "\u2264HS mgrs",
+                                               ifelse(class=="Mgrs" & (educ=="Some college" | educ=="College+"), ">HS mgrs",
+                                                      ifelse(class=="UBOs" & (educ=="<HS" | educ=="HS"), "\u2264HS UBOs",
+                                                             ifelse(class=="UBOs" & (educ=="Some college" | educ=="College+"), ">HS UBOs",
+                                                                    ifelse(class=="IBOs" & (educ=="<HS" | educ=="HS"), "\u2264HS IBOs",
+                                                                           ifelse(class=="IBOs" & (educ=="Some college" | educ=="College+"), ">HS IBOs", 
+                                                                                  ifelse(class=="NLFs" & (educ=="<HS" | educ=="HS"), "\u2264HS NLFs", 
+                                                                                         ifelse(class=="NLFs" & (educ=="Some college" | educ=="College+"), ">HS NLFs", NA)))))))))),
+                          levels=c(">HS IBOs", ">HS UBOs", ">HS mgrs", ">HS wrks", ">HS NLFs",
+                                   "\u2264HS IBOs", "\u2264HS UBOs", "\u2264HS mgrs", "\u2264HS wrks", "\u2264HS NLFs")),
+         class_sens=factor(ifelse(year<2001 | year>2003, NA, #identical to primary class variable (in 2002, both approaches to measuring business ownership with classwk/classwk2/etc overlapped)
+                                  ifelse(empstat==220, "NLFs",
+                                         ifelse((empstat>=200 & empstat<=214) | (classwk>=20 & classwk<=34 & managers!=1), "Wrks",
+                                                ifelse((classwk>=20 & classwk<=34 & managers==1), "Mgrs",
+                                                       ifelse(classwk==40 & jobsecincorp==2, "IBOs",
+                                                              ifelse((classwk==40 & jobsecincorp==1) | classwk==50, "UBOs", NA)))))), 
+                          levels=c("IBOs", "UBOs", "Mgrs", "Wrks", "NLFs")),
+         class_occ=factor(ifelse(empstat==220, "NLFs",
+                                 ifelse(empstat>=200 & empstat<=214, "Unemps",
+                                        ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=900) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=900), "Blue collar",
+                                               ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=600 & occ1995<900) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=600 & occ1995<900), "Services",
+                                                      ifelse((year<2001 & classwk>=20 & classwk<=34 & occ1995>=200 & occ1995<600) | (year>=2001 & classwk2>=1 & classwk2<=4 & occ1995>=200 & occ1995<600), "White collar",
+                                                             ifelse((year<2001 & classwk>=20 & classwk<=34 & managers==1) | (year>=2001 & classwk2>=1 & classwk2<=4 & managers==1), "Mgrs",
+                                                                    ifelse((year<2001 & classwk==41) | (year>=2001 & classwk2==5 & jobsecincorp==2), "IBOs",
+                                                                           ifelse((year<2001 & (classwk==42 | classwk==50)) | ((year>=2001 & classwk2==6) | (year>=2001 & classwk2==5 & jobsecincorp==1)), "UBOs", NA)))))))), 
+                     levels=c("IBOs", "UBOs", "Mgrs", "White collar", "Services", "Blue collar", "Unemps", "NLFs"))) -> dat_sub
+
+#make dataset without hispanic oversample for main analyses
+dat_sub %>%
+  filter(hispanic_oversample==0) -> dat_sub_no_hisp
+```
+
+# Missingness 
+
+Age missingness is in full dataset among years and samples of interest; missingness for other variables is among those ages 25-64.
+
+```{r message=FALSE, warning=FALSE}
+#age in full dataset
+dat %>%
+  filter(mortelig==1 & (is.na(astatflg) | astatflg==1) & (year<1997 | (year>2000)) & 
+           !(year==1992 & substr(nhispid, 1, 4)==1991)) %>%
+  mutate_at(.vars=(vars(-c(mortucod, mortwt, mortwtsa, psu, strata, nhispid, nhishid))), ~ifelse(. %in% c(91, 96, 97, 98, 99, 970, 980, 990, 7777, 8888, 9999), NA, .)) %>%
+  dplyr::select('age') %>%
+  miss_var_summary() -> dat_age_na
+
+#other vars in subsetted dataset
+dat_sub_no_hisp %>%
+  dplyr::select(c('class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')) %>%
+  miss_var_summary() -> dat_other_na
+
+#print
+kable(bind_rows(dat_age_na, dat_other_na), digits=2, col.names=c("Variable", "Number missing", "Percent missing")) %>%
+  kable_styling('striped')
+
+#create complete-case dataset for rest of analyses
+dat_sub_no_hisp <- dat_sub_no_hisp[complete.cases(dat_sub_no_hisp[,c('age', 'time', 'class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')]),]
+```
+
+# Descriptives
+
+Weighted and excluding missingness unless otherwise noted.
+
+## Unweighted and stratified table one 
+
+```{r message=FALSE, warning=FALSE}
+#vars of interest
+vars <- c('sex', 'race_h', 'educ', 'marital_tri', 'region', 'age', 'int_year_fin', 'time', 'dead')
+catvars <- c("sex", 'dead')
+nonorm <- c('age', 'int_year_fin', 'time')
+
+x <- CreateTableOne(data=dat_sub_no_hisp, vars=vars, factorVars=catvars, strata='class', includeNA=TRUE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, test=FALSE)
+kable(x) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+## Stratified table one 
+
+```{r message=FALSE, warning=FALSE}
+dat_sub_no_hisp_svy <- svydesign(ids = ~ psu,
+                         strata = ~ strata, 
+                         weights = ~ mortwt_f,
+                         nest=TRUE, 
+                         data=dat_sub_no_hisp)
+
+x <- svyCreateTableOne(data=dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+kable(x) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+## Stratified table one with workers subdivided by occupation
+
+```{r message=FALSE, warning=FALSE}
+x <- svyCreateTableOne(data=dat_sub_no_hisp_svy, vars=vars, factorVars=catvars, strata='class_occ', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+kable(x) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+## Stratified class composition of gender-races 
+
+### Table
+
+```{r message=FALSE, warning=FALSE}
+x <- svyCreateTableOne(data=dat_sub_no_hisp_svy, vars='class', factorVars='class', strata='race_h_sex', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+kable(x[2:7,]) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+### Mosaic plot
+
+```{r message=FALSE, warning=FALSE, fig.height=5, fig.width=10}
+ggplot(data=dat_sub_no_hisp) +
+  geom_mosaic(aes(x=product(class, race_h_sex), fill=class, weight=mortwt_f)) +
+  ylab("") +
+  xlab("")  +
+  scale_y_productlist(expand=c(0,0.01)) +
+  scale_x_productlist(expand=c(0,0.01)) +
+  scale_fill_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,8,4,10,6)]) +
+  theme_classic() +
+  theme(axis.line=element_blank(), axis.title=element_blank(), legend.position="none",
+        axis.text.y=element_text(size=10, color="black"), axis.text.x=element_text(size=10, color="black", angle=25, vjust=1, hjust=1)) 
+
+ggsave('mosaic.png', dpi=600, height=5, width=10)
+```
+
+## Proportions in classes over time 
+
+Using interview year rather than survey-wave year. Excluded 2019 because <50 respondents interviewed in 2019.
+
+```{r message=FALSE, warning=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin!=2019) %>%
+  group_by(class, int_year_fin) %>%
+  summarise(n = sum(mortwt_f)) %>%
+  ungroup() %>%
+  group_by(int_year_fin) %>%
+  mutate(prop = n / sum(n)) -> propped
+
+ggplot(propped, aes(x=int_year_fin, y=prop, group=class, color=class, label=class)) +
+  geom_dl(method='last.qp') +
+  geom_line() +
+  scale_color_manual(values=brewer.pal(n = 12, name = "Paired")[c(2,8,4,10,6)]) +
+  scale_x_continuous(breaks=c(1986, 1994, 2002, 2010, 2018), expand=expansion(mult=c(0,0.08))) +
+  scale_y_continuous(limits=c(0, 0.63), expand=expansion(mult=c(0,0))) +
+  xlab("Interview year") +
+  ylab("Proportion") +
+  theme_light() +
+  theme(legend.position = "none")
+
+ggsave('proportions_over_time.png', dpi=600)
+```
+
+## Family income distribution across classes from 2007-2018 
+
+Income coding inconsistent prior to 2007. Unadjusted for inflation. Row label shows lower bound of category.
+
+```{r message=FALSE, warning=FALSE}
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2007), vars='incimp1_rev', factorVars='incimp1_rev', strata='class', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+row.names(x)[3:23] <- c(paste0(seq(0,95,5), "k"),">=100k")
+kable(x[3:23,]) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+## Number of employees at work across classes from 2001-2018
+
+Excluding those not working. IBOs 4x as likely as UBOs to be in firms with 10+ employees. It makes sense that managers and workers are much more likely than business owners to work in larger firms, since any given firm, regardless of size, will only have one owner (in theory), whereas such firms will have multiple workers. For example, in a society with 5 firms, 4 of which have 5 employees and 1 of which has 1000 employees, 80% of owners will come from firms with 5 employees, but 98% (1000/1020) of workers will come from firms with 1000+ employees.
+
+```{r message=FALSE, warning=FALSE}
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2001 & numemps!=0 & class!="NLFs"), vars='numemps', factorVars='numemps', strata='class', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+row.names(x)[3:10] <- c("1-9", "10-24", "25-49", "50-99", "100-249", "250-499", "500-999", "1000+")
+kable(x[3:10,1:4]) %>%
+  kable_styling(c("striped", "condensed"))
+```
+
+## Reason not in labor force
+
+### Main reason for not working last week
+
+Variable only available from 2004-on.
+
+```{r warning=FALSE, message=FALSE}
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=2004 & empstat==220 & whynowk2!=0), vars='whynowk2', factorVars='whynowk2', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+row.names(x)[3:12] <- c("Keeping house", "Going to school", "Retired", "Unable to work for health reasons", "Disabled", "On layoff", "On planned vacation", "On family leave", "Have job/contract; off season", "Other")
+kable(x[3:12,], digits=2, col.names="Percent") %>% 
+  kable_styling("striped")
+```
+
+### Limited in kind/amount of work can do
+
+Variable only available from 1997-on.
+
+```{r warning=FALSE, message=FALSE}
+x <- svyCreateTableOne(data=subset(dat_sub_no_hisp_svy, year>=1997), vars='lamtwrk', factorVars='lamtwrk', strata='empstat', includeNA=FALSE)
+x <- print(x, printToggle=FALSE, noSpaces=TRUE, nonnormal=nonorm, format='p', test=FALSE)
+row.names(x)[3:5] <- c("Not limited", "Limited", "Unable to work")
+kable(x[3:5,], col.names=c("Working for pay", "Working w/o pay", "With job, but not at work", "Not employed", "NILF")) %>% 
+  kable_styling("striped")
+```
+
+# Class and all-cause mortality
+
+```{r}
+#plotting function
+plotted <- function(datted, 
+                    classed_repped=34,
+                    classed=c(rep("IBOs", classed_repped), rep("UBOs", classed_repped), rep("Mgrs", classed_repped), rep("Wrks", classed_repped), rep("NLFs", classed_repped)),
+                    repped=5,
+                    grpd, 
+                    grps, 
+                    dummied=c("IBOs", "UBOs", "Mgrs", "Wrks", "NLFs"),
+                    cexed=0.85,
+                    vjusted=1,
+                    val=brewer.pal(n = 12, name = "Paired")[c(2,4,6,8,10)], 
+                    bottom=0.50){
+  
+  dat_surv <- rbind(data.frame(time=datted$time,
+                               surved=datted$surv,
+                               se=datted$std.err,
+                               class=classed,
+                               grp=rep(grpd, grps)),
+                    data.frame(time=rep(0, repped), surved=rep(1, repped), se=rep(0, repped), class=dummied, grp=rep(grpd, grps)))
+  
+  ggplot(dat_surv, aes(x=time, y=surved, group=class, color=class, fill=class, label=class)) + 
+    facet_wrap(~grp) +
+    geom_line() +
+    geom_ribbon(aes(ymin=surved-1.96*se, ymax=surved+1.96*se, color=class), alpha=0.2, lty=0) +
+    geom_dl(method=list('last.bumpup', cex=cexed, vjust=vjusted)) +
+    scale_color_manual(values=val) +
+    scale_fill_manual(values=val) +
+    xlab("Follow-up time (years)") +
+    ylab("Probability of survival") +
+    scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.11))) +
+    scale_y_continuous(limits=c(bottom, 1.0), expand=expansion(mult=c(0,0))) +
+    theme_light() +
+    theme(legend.position="none", strip.background=element_rect(color="darkgrey", fill=NA), 
+          strip.text=element_text(color="black"), panel.grid.minor.x = element_blank())
+}
+
+#group plotting function
+plotted_group <- function(datted, 
+                    classed_repped=34,
+                    classed=rep(c(rep("IBOs", classed_repped), rep("UBOs", classed_repped), rep("Mgrs", classed_repped), rep("Wrks", classed_repped), rep("NLFs", classed_repped)), 2),
+                    repped=10,
+                    grpd1, 
+                    grps1=170, 
+                    grpd2,
+                    grps2=170,
+                    dummied=c("IBOs", "UBOs", "Mgrs", "Wrks", "NLFs"),
+                    levelled=c(grpd1, grpd2),
+                    cexed=0.85,
+                    vjusted=1,
+                    val=brewer.pal(n = 12, name = "Paired")[c(2,4,6,8,10)], 
+                    bottom=0.50){
+  
+  dat_surv <- rbind(data.frame(time=rep(0, repped),
+                               surved=rep(1, repped), 
+                               se=rep(0, repped), 
+                               class=dummied,  
+                               grp=c(rep(grpd1, 5), rep(grpd2, 5))),
+                    data.frame(time=datted$time,
+                               surved=datted$surv,
+                               se=datted$std.err,
+                               class=classed,
+                               grp=c(rep(grpd1, grps1), rep(grpd2, grps2)))) %>%
+    mutate(grp=factor(grp, levels=levelled))
+  
+  ggplot(dat_surv, aes(x=time, y=surved, group=class, color=class, fill=class, label=class)) + 
+    facet_wrap(~grp) +
+    geom_line() +
+    geom_ribbon(aes(ymin=surved-1.96*se, ymax=surved+1.96*se, color=class), alpha=0.2, lty=0) +
+    geom_dl(method=list('last.bumpup', cex=cexed, vjust=vjusted)) +
+    scale_color_manual(values=val) +
+    scale_fill_manual(values=val) +
+    xlab("Follow-up time (years)") +
+    ylab("Probability of survival") +
+    scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.11))) +
+    scale_y_continuous(limits=c(bottom, 1.0), expand=expansion(mult=c(0,0))) +
+    theme_light() +
+    theme(legend.position="none", strip.background=element_rect(color="darkgrey", fill=NA), 
+          strip.text=element_text(color="black"), panel.grid.minor.x = element_blank())
+}
+
+#survdiff function
+survdiffed <- function(datted, 
+                       timed=34){
+  
+  #end of f/u
+  point <- summary(datted, times=timed)
+  
+  #pb-cap
+  pb <- 100*(point$surv[2] - point$surv[1])
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+    
+  #mc-cap
+  mc <- 100*(point$surv[3] - point$surv[1])
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  
+  #worker-cap
+  wc <- 100*(point$surv[4] - point$surv[1])
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  
+  #nilf-cap
+  nc <- 100*(point$surv[5] - point$surv[1])
+  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  
+  rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(nc, nc_lower, nc_upper))
+  
+}
+
+#survdiff function for worker subdivision
+survdiffed_sub <- function(datted, 
+                           timed=34){
+  
+  #end of f/u
+  point <- summary(datted, times=timed)
+  
+  #pb-cap
+  pb <- 100*(point$surv[2] - point$surv[1])
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  
+  #mc-cap
+  mc <- 100*(point$surv[3] - point$surv[1])
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  
+  #whitecollar-cap
+  wc <- 100*(point$surv[4] - point$surv[1])
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  
+  #services-cap
+  servs <- 100*(point$surv[5] - point$surv[1])
+  servs_lower <- 100*(servs/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  servs_upper <- 100*(servs/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  
+  #bluecollar-cap
+  bc <- 100*(point$surv[6] - point$surv[1])
+  bc_lower <- 100*(bc/100 - 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  bc_upper <- 100*(bc/100 + 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  
+  #pb2-cap
+  unemp <- 100*(point$surv[7] - point$surv[1])
+  unemp_lower <- 100*(unemp/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  unemp_upper <- 100*(unemp/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  
+  #man2-cap
+  nilf <- 100*(point$surv[8] - point$surv[1])
+  nilf_lower <- 100*(nilf/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  nilf_upper <- 100*(nilf/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  
+  rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(servs, servs_lower, servs_upper),
+        c(bc, bc_lower, bc_upper), c(unemp, unemp_lower, unemp_upper), c(nilf, nilf_lower, nilf_upper))
+  
+}
+
+#survdiff function for groups
+survdiffed_group <- function(datted,
+                             timed=34){
+  
+  #end of f/u
+  point <- summary(datted, times=timed)
+  
+  #pb-cap
+  pb <- 100*(point$surv[2] - point$surv[1])
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[2]^2 + point$std.err[1]^2))
+  
+  #mc-cap
+  mc <- 100*(point$surv[3] - point$surv[1])
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[3]^2 + point$std.err[1]^2))
+  
+  #worker-cap
+  wc <- 100*(point$surv[4] - point$surv[1])
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[4]^2 + point$std.err[1]^2))
+  
+  #nilf-cap
+  nc <- 100*(point$surv[5] - point$surv[1])
+  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[5]^2 + point$std.err[1]^2))
+  
+  #cap2-cap
+  cap2 <- 100*(point$surv[6] - point$surv[1])
+  cap2_lower <- 100*(cap2/100 - 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  cap2_upper <- 100*(cap2/100 + 1.96*sqrt(point$std.err[6]^2 + point$std.err[1]^2))
+  
+  #pb2-cap
+  pb2 <- 100*(point$surv[7] - point$surv[1])
+  pb2_lower <- 100*(pb2/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  pb2_upper <- 100*(pb2/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[1]^2))
+  
+  #man2-cap
+  man2 <- 100*(point$surv[8] - point$surv[1])
+  man2_lower <- 100*(man2/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  man2_upper <- 100*(man2/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[1]^2))
+  
+  #wrk2-cap
+  wrk2 <- 100*(point$surv[9] - point$surv[1])
+  wrk2_lower <- 100*(wrk2/100 - 1.96*sqrt(point$std.err[9]^2 + point$std.err[1]^2))
+  wrk2_upper <- 100*(wrk2/100 + 1.96*sqrt(point$std.err[9]^2 + point$std.err[1]^2))
+  
+  #nilf2-cap
+  nilf2 <- 100*(point$surv[10] - point$surv[1])
+  nilf2_lower <- 100*(nilf2/100 - 1.96*sqrt(point$std.err[10]^2 + point$std.err[1]^2))
+  nilf2_upper <- 100*(nilf2/100 + 1.96*sqrt(point$std.err[10]^2 + point$std.err[1]^2))
+  
+  rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(nc, nc_lower, nc_upper),
+        c(cap2, cap2_lower, cap2_upper), c(pb2, pb2_lower, pb2_upper), c(man2, man2_lower, man2_upper), c(wrk2, wrk2_lower, wrk2_upper), c(nilf2, nilf2_lower, nilf2_upper))
+  
+}
+
+#ests within groups
+within_group_ests <- function(datted, 
+                              timed=34, 
+                              modded, 
+                              term1, 
+                              captioned){
+  
+  #######sdiffs
+  #end of f/u
+  point <- summary(datted, times=timed)
+  
+  #pb-cap
+  pb <- 100*(point$surv[7] - point$surv[6])
+  pb_lower <- 100*(pb/100 - 1.96*sqrt(point$std.err[7]^2 + point$std.err[6]^2))
+  pb_upper <- 100*(pb/100 + 1.96*sqrt(point$std.err[7]^2 + point$std.err[6]^2))
+  
+  #mc-cap
+  mc <- 100*(point$surv[8] - point$surv[6])
+  mc_lower <- 100*(mc/100 - 1.96*sqrt(point$std.err[8]^2 + point$std.err[6]^2))
+  mc_upper <- 100*(mc/100 + 1.96*sqrt(point$std.err[8]^2 + point$std.err[6]^2))
+  
+  #worker-cap
+  wc <- 100*(point$surv[9] - point$surv[6])
+  wc_lower <- 100*(wc/100 - 1.96*sqrt(point$std.err[9]^2 + point$std.err[6]^2))
+  wc_upper <- 100*(wc/100 + 1.96*sqrt(point$std.err[9]^2 + point$std.err[6]^2))
+  
+  #nilf-cap
+  nc <- 100*(point$surv[10] - point$surv[6])
+  nc_lower <- 100*(nc/100 - 1.96*sqrt(point$std.err[10]^2 + point$std.err[6]^2))
+  nc_upper <- 100*(nc/100 + 1.96*sqrt(point$std.err[10]^2 + point$std.err[6]^2))
+  
+  sdiffs <- rbind(c(pb, pb_lower, pb_upper), c(mc, mc_lower, mc_upper), c(wc, wc_lower, wc_upper), c(nc, nc_lower, nc_upper))
+  
+  ######hrs
+  hzds <- rbind(exp(confint(glht(modded, linfct=paste0("`", term1, " UBOs` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
+                exp(confint(glht(modded, linfct=paste0("`", term1, " mgrs` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
+                exp(confint(glht(modded, linfct=paste0("`", term1, " wrks` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]),
+                exp(confint(glht(modded, linfct=paste0("`", term1, " NLFs` - ", "`", term1, " IBOs", "`", " = 0")))$confint[1:3]))
+  
+  kable(data.frame(c("classUBOs", "classMgrs", "classWrks", "classNLFs"), hzds, sdiffs), digits=c(2,2,2,2,1,1,1), 
+        caption=captioned, col.names=c(" ", "HR", "Lower", "Upper", "SD", "Lower", "Upper")) %>%
+    kable_styling("striped") %>%
+    add_header_above(c(" ", "HR"=3, "SD per 100 at end of f/u"=3))
+  
+}
+
+#class-by-year interaction function
+int_year_func <- function(modded){
+  
+  ests <- data.frame(Class=c("classUBOs", "classUBOs", "classMgrs", "classMgrs", "classWrks", "classWrks", "classNLFs", "classNLFs"),
+                     Year=rep(c(1986, 2018),4),
+                     HR=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
+                              contrast(modded, list(class='Mgrs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
+                              contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast,
+                              contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Contrast)),
+                     Lower=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
+                                 contrast(modded, list(class='Mgrs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
+                                 contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower,
+                                 contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Lower)),
+                     Upper=exp(c(contrast(modded, list(class='UBOs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
+                                 contrast(modded, list(class='Mgrs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
+                                 contrast(modded, list(class='Wrks', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper,
+                                 contrast(modded, list(class='NLFs', int_year_fin=c(1986, 2018)), list(class='IBOs', int_year_fin=c(1986, 2018)))$Upper)))
+  
+  chunked <- anova(modded, int_year_fin)[2,3]
+  
+  kable(cbind(ests[c(1,3,5,7),c(1,3:5)], ests[c(2,4,6,8),c(3:5)], data.frame(N=c(length(modded$residuals), rep(NA, 3))), data.frame(P=c(chunked, rep(NA, 3)))),
+        row.names=F, digits=c(2,2,2,2,2,2,2,2,20), caption="Ref: IBOs in given year") %>%
+    kable_styling("striped") %>%
+    add_header_above(c(" ", "1986"=3, "2018"=3, " ", " "))
+  
+}
+
+#tidying regression output function
+tidy_n <- function(modded, 
+                   rows=1:4, 
+                   cols=c(1,2,7,8),
+                   bind=binded,
+                   nad=3, 
+                   captioned="Ref: IBOs"){
+  
+  tidydf <- cbind(tidy(modded, exponentiate=T, conf.int=T)[rows, cols], bind)
+  tidydf$N <- c(length(modded$residuals), rep(NA, nad))
+  kable(tidydf, digits=c(2,2,2,2,1,1,1,1), caption=captioned, col.names=c(" ", "HR", "Lower", "Upper", "SD", "Lower", "Upper", "N")) %>%
+    kable_styling("striped") %>%
+    add_header_above(c(" ", "HR"=3, "SD per 100 at end of f/u"=3, " "))
+  
+}
+```
+
+## Overall and subdivided by occupation
+
+### Less-adjusted (age, gender, year)
+
+#### Distribution of IPW
+
+##### Overall
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_over=ipwpoint(exposure=class,
+                          family="multinomial",
+                          link="logit",
+                          numerator=~1,
+                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                          data=dat_sub_no_hisp,
+                          weights=mortwt_f,
+                          trace=FALSE,
+                          maxit=1000)$ipw.weights,
+         sw_f_over=sw_over*mortwt_f)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_over)
+```
+
+##### Subdivided
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_sub=ipwpoint(exposure=class_occ,
+                         family="multinomial",
+                         link="logit",
+                         numerator=~1,
+                         denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                         data=dat_sub_no_hisp,
+                         weights=mortwt_f,
+                         maxit=1000,
+                         trace=FALSE)$ipw.weights,
+         sw_f_sub=sw_sub*mortwt_f)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_sub)
+```
+
+#### Covariate balance after weighting
+
+SMDs for continuous variables; MDs for binary/categorical variables.
+
+##### Overall
+
+```{r warning=FALSE, message=FALSE, fig.height=5, fig.width=9}
+covs <- subset(dat_sub_no_hisp, select=c('age', 'year', 'sex'))
+               
+love.plot(covs,
+          treat=dat_sub_no_hisp$class, 
+          weights=dat_sub_no_hisp$sw_f_over, 
+          threshold=c(m=0.1), 
+          which=.all) +
+  facet_wrap(~treat, nrow=2) +
+  scale_color_manual(values=c("#77AADD", "#114477")) +
+  theme_light() +
+  theme(legend.title=element_blank(), plot.title=element_blank(), 
+        strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender"))) 
+```
+
+##### Subdivided 
+
+```{r warning=FALSE, message=FALSE, fig.height=9, fig.width=14}
+covs <- subset(dat_sub_no_hisp, select=c('age', 'year', 'sex'))
+               
+love.plot(covs,
+          treat=dat_sub_no_hisp$class_occ, 
+          weights=dat_sub_no_hisp$sw_f_sub, 
+          threshold=c(m=0.1), 
+          which=.all) +
+  facet_wrap(~treat, nrow=4) +
+  scale_color_manual(values=c("#77AADD", "#114477")) +
+  theme_light() +
+  theme(legend.title=element_blank(), plot.title=element_blank(), 
+        strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender"))) 
+```
+
+#### Survival 
+
+```{r warning=FALSE, message=FALSE}
+#overall
+kapped_over <- survfit(Surv(time,dead)~class, robust=T, w=sw_f_over, data=dat_sub_no_hisp, se=T)
+mod_over <- coxph(Surv(time,dead)~class, robust=T, w=sw_f_over, data=dat_sub_no_hisp)
+binded_over <- survdiffed(datted=kapped_over)
+
+#subdivided workers
+kapped_sub <- survfit(Surv(time,dead)~class_occ, robust=T, w=sw_f_sub, data=dat_sub_no_hisp, se=T)
+mod_sub <- coxph(Surv(time,dead)~class_occ, robust=T, w=sw_f_sub, data=dat_sub_no_hisp)
+binded_sub <- survdiffed_sub(datted=kapped_sub)
+```
+
+##### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted(datted=kapped_over, 
+        grpd="Workers undivided", 
+        grps=170) + 
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
+plotted(datted=kapped_sub, 
+        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mgrs", 34), rep("WCs", 34), rep("Servs", 34), 
+                         rep("BCs", 34), rep("Unemps", 34), rep("NLFs", 34)), 
+                       levels=c("IBOs", "UBOs", "Mgrs", "WCs", "BCs", "Servs", "Unemps", "NLFs")),
+        grpd="Workers subdivided",
+        grps=272, 
+        repped=8,
+        dummied=c("IBOs", "UBOs", "Mgrs", "WCs", "Servs", "BCs", "Unemps", "NLFs"),
+        val=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) + 
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
+
+ggsave("overall_subdivided.png", dpi=600, height=4, width=8.75)
+```
+
+##### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_over, bind=binded_over)
+tidy_n(modded=mod_sub, bind=binded_sub, rows=1:7, nad=6)
+```
+
+### More-adjusted (age, gender, year, education, marital status, region, and racialized group)
+
+#### Distribution of IPW
+
+Truncated at 0.5% and 99.5%.
+
+##### Overall
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_over_adj=ipwpoint(exposure=class,
+                              family="multinomial",
+                              link="logit",
+                              numerator=~1,
+                              denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5) + educ + marital_tri + region + race_h, 
+                              data=dat_sub_no_hisp,
+                              weights=mortwt_f,
+                              trace=FALSE,
+                              maxit=1000,
+                              trunc=0.005)$weights.trunc,
+         sw_f_over_adj=sw_over_adj*mortwt_f)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_over_adj)
+```
+
+##### Subdivided
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_sub_adj=ipwpoint(exposure=class_occ,
+                         family="multinomial",
+                         link="logit",
+                         numerator=~1,
+                         denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5) + educ + marital_tri + region + race_h, 
+                         data=dat_sub_no_hisp,
+                         weights=mortwt_f,
+                         trace=FALSE,
+                         maxit=1000,
+                         trunc=0.005)$weights.trunc,
+         sw_f_sub_adj=sw_sub_adj*mortwt_f)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_sub_adj)
+```
+
+#### Covariate balance after weighting
+
+SMDs for continuous variables; MDs for binary/categorical variables.
+
+##### Overall
+
+```{r warning=FALSE, message=FALSE, fig.height=8, fig.width=9.5}
+covs <- subset(dat_sub_no_hisp, select=c('age', 'year', 'sex', 'race_h', 'educ', 'marital_tri', 'region'))
+               
+love.plot(covs,
+          treat=dat_sub_no_hisp$class, 
+          weights=dat_sub_no_hisp$sw_f_over_adj, 
+          threshold=c(m=0.1), 
+          which=.all) +
+  facet_wrap(~treat, nrow=2) +
+  scale_color_manual(values=c("#77AADD", "#114477")) +
+  theme_light() +
+  theme(legend.title=element_blank(), plot.title=element_blank(), 
+        strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
+                                "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
+```
+
+##### Subdivided 
+
+```{r warning=FALSE, message=FALSE, fig.height=14, fig.width=14}
+covs <- subset(dat_sub_no_hisp, select=c('age', 'year', 'sex', 'race_h', 'educ', 'marital_tri', 'region'))
+               
+love.plot(covs,
+          treat=dat_sub_no_hisp$class_occ, 
+          weights=dat_sub_no_hisp$sw_f_sub_adj, 
+          threshold=c(m=0.1), 
+          which=.all) +
+  facet_wrap(~treat, nrow=4) +
+  scale_color_manual(values=c("#77AADD", "#114477")) +
+  theme_light() +
+  theme(legend.title=element_blank(), plot.title=element_blank(), 
+        strip.background=element_rect(color="darkgrey", fill=NA), strip.text=element_text(color="black")) +
+  scale_y_discrete(labels=rev(c("Age*", "Year*", "Gender", 'NH white', "NH black", "Hispanic", "NH other", 
+                                "<HS", "HS", "Some college", "College+", "Married", "Single", "Wid/div/sep", "MW", "NE", "S", "W"))) 
+```
+
+#### Survival 
+
+```{r warning=FALSE, message=FALSE}
+#overall
+kapped_over <- survfit(Surv(time,dead)~class, robust=T, w=sw_f_over_adj, data=dat_sub_no_hisp, se=T)
+mod_over <- coxph(Surv(time,dead)~class, robust=T, w=sw_f_over_adj, data=dat_sub_no_hisp)
+binded_over <- survdiffed(datted=kapped_over)
+
+#subdivided workers
+kapped_sub <- survfit(Surv(time,dead)~class_occ, robust=T, w=sw_f_sub_adj, data=dat_sub_no_hisp, se=T)
+mod_sub <- coxph(Surv(time,dead)~class_occ, robust=T, w=sw_f_sub_adj, data=dat_sub_no_hisp)
+binded_sub <- survdiffed_sub(datted=kapped_sub)
+```
+
+##### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted(datted=kapped_over, 
+        grpd="Workers undivided", 
+        grps=170) + 
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
+plotted(datted=kapped_sub, 
+        classed=factor(c(rep("IBOs", 34), rep("UBOs", 34), rep("Mgrs", 34), rep("WCs", 34), rep("Servs", 34), 
+                         rep("BCs", 34), rep("Unemps", 34), rep("NLFs", 34)), 
+                       levels=c("IBOs", "UBOs", "Mgrs", "WCs", "Servs", "BCs", "Unemps", "NLFs")),
+        grpd="Workers subdivided",
+        grps=272, 
+        repped=8,
+        dummied=c("IBOs", "UBOs", "Mgrs", "WCs", "Servs", "BCs", "Unemps", "NLFs"),
+        vjusted=1.5,
+        val=c(brewer.pal(n = 12, name = "Paired")[c(2,8,4)], brewer.pal(n=9, name="Purples")[c(5,6,7,8)], brewer.pal(n = 12, name = "Paired")[c(6)])) + 
+  scale_x_continuous(limits=c(0, 34), breaks=seq(1, 34, 3), expand=expansion(mult=c(0,0.16))) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank()) 
+
+ggsave("overall_subdivided_adj.png", dpi=600, height=4, width=8.75)
+```
+
+##### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_over, bind=binded_over)
+tidy_n(modded=mod_sub, bind=binded_sub, rows=1:7, nad=6)
+```
+
+## Class-by-year stratification - 1986-1996 interview years w/ f/u through end of 2004 vs 2001-2019 interview years w/ f/u through end of 2019
+
+### Less-adjusted (age, gender, year)
+
+#### Distribution of IPW
+
+##### 1986-1996
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin<=1996) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     weights=mortwt_f,
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_1986
+
+summary(dat_sub_no_hisp_1986$sw)
+```
+
+##### 2001-2019
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin>=2001) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     weights=mortwt_f,
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_2001
+
+summary(dat_sub_no_hisp_2001$sw)
+```
+
+#### Survival 
+
+```{r warning=FALSE, message=FALSE}
+#early
+kapped_early <- survfit(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_1986, se=T) 
+mod_early <- coxph(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_1986)
+binded_early <- survdiffed(kapped_early, timed=19)
+
+#late
+kapped_late <- survfit(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2001, se=T)
+mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2001)
+binded_late <- survdiffed(kapped_late, timed=19)
+```
+
+##### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted(datted=kapped_early,
+        classed_repped=19,
+        grpd="1986-1996 with follow-up through 2004", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11)))  +
+plotted(datted=kapped_late,
+        classed_repped=19,
+        grpd="2001-2019 with follow-up through 2019", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11))) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+                     
+ggsave("change_over_time.png", dpi=600, height=4, width=8.75)
+```
+
+##### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: IBOs (1986-1996 subset)")
+tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: IBOs (2001-2019 subset)")
+```
+
+### More-adjusted (age, gender, year, education, marital status, region, and racialized group)
+
+#### Distribution of IPW
+
+Truncated at 0.5% and 99.5%.
+
+##### 1986-1996
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin<=1996) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3) + educ + marital_tri + region + race_h, 
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     weights=mortwt_f,
+                     trace=FALSE,
+                     maxit=1000,
+                     trunc=0.005)$weights.trunc,
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_1986
+
+summary(dat_sub_no_hisp_1986$sw)
+```
+
+##### 2001-2019
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin>=2001) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3) + educ + marital_tri + region + race_h, 
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     weights=mortwt_f,
+                     trace=FALSE,
+                     maxit=1000,
+                     trunc=0.005)$weights.trunc,
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_2001
+
+summary(dat_sub_no_hisp_2001$sw)
+```
+
+#### Survival
+
+```{r warning=FALSE, message=FALSE}
+#early
+kapped_early <- survfit(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_1986, se=T) 
+mod_early <- coxph(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_1986)
+binded_early <- survdiffed(kapped_early, timed=19)
+
+#late
+kapped_late <- survfit(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2001, se=T)
+mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_2001)
+binded_late <- survdiffed(kapped_late, timed=19)
+```
+
+##### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted(datted=kapped_early,
+        classed_repped=19,
+        grpd="1986-1996 with follow-up through 2004", 
+        grps=95, 
+        vjusted=1.5,
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11))) +
+plotted(datted=kapped_late,
+        classed_repped=19,
+        grpd="2001-2019 with follow-up through 2019", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11))) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+                     
+ggsave("change_over_time_adj.png", dpi=600, height=4, width=8.75)
+```
+
+##### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: IBOs (1986-1996 subset)")
+tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: IBOs (2001-2019 subset)")
+```
+
+## Class-by-gender and class-by-racialized-group interaction
+
+### Distribution of IPW
+
+#### Gender
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_gend=ipwpoint(exposure=class_gender,
+                          family="multinomial",
+                          link="logit",
+                          numerator=~1,
+                          denominator=~rcs(age, 3) + rcs(int_year_fin, 5), 
+                          data=dat_sub_no_hisp,
+                          weights=mortwt_f,
+                          maxit=1000,
+                          trace=FALSE)$ipw.weights,
+         sw_f_gend=sw_gend*mortwt_f,
+         gender=ifelse(sex=="female", "Women", "Men"))  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_gend)
+```
+
+#### Racialized group
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_race=ipwpoint(exposure=class_poc,
+                          family="multinomial",
+                          link="logit",
+                          numerator=~1,
+                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                          data=dat_sub_no_hisp,
+                          weights=mortwt_f,
+                          maxit=1000,
+                          trace=FALSE)$ipw.weights,
+         sw_f_race=sw_race*mortwt_f)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_race)
+```
+
+### Survival
+
+```{r warning=FALSE, message=FALSE}
+#gender
+kapped_gend <- survfit(Surv(time,dead)~class_gender, robust=T, w=sw_f_gend, data=dat_sub_no_hisp, se=T)
+mod_gend <- coxph(Surv(time,dead)~class_gender, robust=T, w=sw_f_gend, data=dat_sub_no_hisp)
+binded_gend <- survdiffed_group(kapped_gend)
+
+#racialized group
+kapped_race <- survfit(Surv(time,dead)~class_poc, robust=T, w=sw_f_race, data=dat_sub_no_hisp, se=T)
+mod_race <- coxph(Surv(time,dead)~class_poc, robust=T, w=sw_f_race, data=dat_sub_no_hisp)
+binded_race <- survdiffed_group(kapped_race)
+```
+
+#### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=7.5, fig.width=8.75}
+plotted_group(kapped_gend, grpd1="Men", grpd2="Women", bottom=0.40) +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+plotted_group(kapped_race, grpd1="NH white", grpd2="NH Black, Hispanic, or NH other", bottom=0.40) +
+  plot_layout(ncol=1)
+
+ggsave("gender_race_survival.png", dpi=600, height=7.5, width=8.75)
+```
+
+#### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_gend, bind=binded_gend, rows=1:9, nad=8, captioned="Ref: male IBOs")
+within_group_ests(datted=kapped_gend, modded=mod_gend, term1="class_genderFemale", captioned="Estimates among women (ref: female IBOs)")
+tidy_n(modded=mod_race, bind=binded_race, rows=1:9, nad=8, captioned="Ref: NH white IBOs")
+within_group_ests(datted=kapped_race, modded=mod_race, term1="class_pocPOC", captioned="Estimates among POC (ref: POC IBOs)")
+```
+
+## Class-by-education interaction
+
+### Distribution of IPW
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_educ=ipwpoint(exposure=class_educ,
+                          family="multinomial",
+                          link="logit",
+                          numerator=~1,
+                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                          data=dat_sub_no_hisp,
+                          weights=mortwt_f,
+                          maxit=1000,
+                          trace=FALSE)$ipw.weights,
+         sw_f_educ=sw_educ*mortwt_f)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_educ)
+```
+
+### Survival
+
+```{r warning=FALSE, message=FALSE}
+kapped_educ <- survfit(Surv(time,dead)~class_educ, robust=T, w=sw_f_educ, data=dat_sub_no_hisp, se=T)
+mod_educ <- coxph(Surv(time,dead)~class_educ, robust=T, w=sw_f_educ, data=dat_sub_no_hisp)
+binded_educ <- survdiffed_group(kapped_educ)
+```
+
+#### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted_group(kapped_educ, grpd1=">HS", grpd2="\u2264HS", levelled=c("\u2264HS", ">HS"), bottom=0.45)
+
+ggsave("educ_survival.png", dpi=600, height=4, width=8.75)
+```
+
+#### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_educ, bind=binded_educ, rows=1:9, nad=8, captioned="Ref: >HS IBOs")
+within_group_ests(datted=kapped_educ, modded=mod_educ, term1="class_educ=HS", captioned="Estimates among \u2264HS (ref: \u2264HS IBOs)")
+```
+
+## Class-by-age stratification - 25-44 vs 45-64 years old
+
+### Distribution of IPW
+
+#### 25-44
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(age<45) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                     data=subset(dat_sub_no_hisp, age<45),
+                     weights=mortwt_f,
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_young
+
+summary(dat_sub_no_hisp_young$sw)
+```
+
+#### 45-64
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(age>=45) %>%
+  mutate(sw=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                     data=subset(dat_sub_no_hisp, age>=45),
+                     weights=mortwt_f,
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights,
+         sw_f=sw*mortwt_f)  -> dat_sub_no_hisp_old
+
+summary(dat_sub_no_hisp_old$sw)
+```
+
+### Survival
+
+```{r warning=FALSE, message=FALSE}
+#young
+kapped_young <- survfit(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_young, se=T)
+mod_young <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_young)
+binded_young <- survdiffed(kapped_young)
+
+#old
+kapped_old <- survfit(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_old, se=T)
+mod_old <- coxph(Surv(time,dead)~class, robust=T, w=sw_f, data=dat_sub_no_hisp_old)
+binded_old <- survdiffed(kapped_old)
+```
+
+#### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted(datted=kapped_young, grpd="25-44", vjust=1.25, bottom=0.2) + 
+plotted(datted=kapped_old, grpd="45-64", bottom=0.2) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+
+ggsave("age_survival.png", dpi=600, height=4, width=8.75)
+```
+
+#### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_young, bind=binded_young, captioned="Ref: IBOs (25-44 subset)")
+tidy_n(modded=mod_old, bind=binded_old, captioned="Ref: IBOs (45-64 subset)")
+```
+
+## Sensitivity analyses
+
+### Regression adjustment instead of IPW for minimally-adjusted overall Cox analyses
+
+Similar to primary but slightly larger effect sizes for workers and UBOs.
+
+```{r warning=FALSE, message=FALSE}
+mod_reg <- coxph(Surv(time,dead)~class + rcs(age, 3) + sex + rcs(int_year_fin, 5), robust=T, w=mortwt_f, data=dat_sub_no_hisp)
+
+kable(cbind(tidy(mod_reg, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], c(length(mod_reg$residuals), NA, NA, NA)), 
+      col.names=c(" ", "HR", "Lower", "Upper", "N"), caption="Ref: IBOs", digits=2) %>%
+  kable_styling("striped")
+```
+
+### Checking that SEs in primary analyses align with SEs from other approaches
+
+#### Accounting for survey design in overall Cox analyses (adjusting for confounders with IPW)
+
+Basically identical to primary. It makes no difference that we subsetted the dataset by age above rather than within the svycoxph function because age subpopulations appear in all the clusters.
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp_svy <- svydesign(ids = ~ psu,
+                                 strata = ~ strata, 
+                                 weights = ~ sw_f_over,
+                                 nest=TRUE, 
+                                 data=dat_sub_no_hisp)
+
+mod_surv <- svycoxph(Surv(time,dead)~class, design=dat_sub_no_hisp_svy)
+
+kable(cbind(tidy(mod_surv, exponentiate=T, conf.int=T)[1:4, c(1,2,7,8)], c(length(mod_surv$residuals), NA, NA, NA)), 
+      col.names=c(" ", "HR", "Lower", "Upper", "N"), caption="Ref: IBOs", digits=2) %>%
+  kable_styling("striped")
+```
+
+#### Clustering SEs at household level rather than leaving them unclustered
+
+Also basically identical to primary.
+
+```{r warning=FALSE, message=FALSE}
+kapped_house <- survfit(Surv(time,dead)~class + cluster(nhishid), w=sw_f_over, data=dat_sub_no_hisp, se=T)
+mod_house <- coxph(Surv(time,dead)~class + cluster(nhishid), w=sw_f_over, data=dat_sub_no_hisp)
+binded_house <- survdiffed(kapped_house)
+```
+
+```{r}
+tidy_n(modded=mod_house, bind=binded_house)
+```
+
+### Including Hispanic oversample to examine effects on point estimates 
+
+Similar to primary, as Hispanic oversample is very small.
+
+#### Distribution of IPW
+
+```{r warning=FALSE, message=FALSE}
+dat_sub <- dat_sub[complete.cases(dat_sub[,c('age', 'time', 'class', 'sex', 'race_h', 'educ', 'marital_tri', 'region')]),] #exclude missingness using approach from primary analyses
+
+dat_sub %>%
+  mutate(sw_hisp=ipwpoint(exposure=class,
+                          family="multinomial",
+                          link="logit",
+                          numerator=~1,
+                          denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                          data=dat_sub,
+                          weights=mortwt_f,
+                          maxit=1000,
+                          trace=FALSE)$ipw.weights,
+         sw_f_hisp=sw_hisp*mortwt_f)  -> dat_sub_hisp_overall
+
+summary(dat_sub_hisp_overall$sw_hisp)
+```
+
+```{r warning=FALSE, message=FALSE}
+kapped_hisp <- survfit(Surv(time,dead)~class, robust=T, w=sw_f_hisp, data=dat_sub_hisp_overall, se=T)
+mod_hisp <- coxph(Surv(time,dead)~class, robust=T, w=sw_f_hisp, data=dat_sub_hisp_overall)
+binded_hisp <- survdiffed(kapped_hisp)
+```
+
+#### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_hisp, bind=binded_hisp)
+```
+
+### Excluding NHIS sampling weights from analyses 
+
+Similar to primary, but generally somewhat attenuated. 
+
+#### Overall
+
+##### Distribution of IPW
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  mutate(sw_over_excl=ipwpoint(exposure=class,
+                               family="multinomial",
+                               link="logit",
+                               numerator=~1,
+                               denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 5), 
+                               data=dat_sub_no_hisp,
+                               trace=FALSE,
+                               maxit=1000)$ipw.weights)  -> dat_sub_no_hisp
+
+summary(dat_sub_no_hisp$sw_over_excl)
+```
+
+```{r warning=FALSE, message=FALSE}
+kapped_over_excl <- survfit(Surv(time,dead)~class, robust=T, w=sw_over_excl, data=dat_sub_no_hisp, se=T)
+mod_over_excl <- coxph(Surv(time,dead)~class, robust=T, w=sw_over_excl, data=dat_sub_no_hisp)
+binded_over_excl <- survdiffed(datted=kapped_over_excl)
+```
+
+##### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_over_excl, bind=binded_over_excl)
+```
+
+#### Class-by-year stratification - 1986-1996 interview years w/ f/u through end of 2004 vs 2001-2019 interview years w/ f/u through end of 2019
+
+##### Distribution of IPW
+
+###### 1986-1996
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin<=1996) %>%
+  mutate(sw_excl=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                     data=subset(dat_sub_no_hisp, int_year_fin<=1996),
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights)  -> dat_sub_no_hisp_1986
+
+summary(dat_sub_no_hisp_1986$sw_excl)
+```
+
+###### 2001-2019
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(int_year_fin>=2001) %>%
+  mutate(sw_excl=ipwpoint(exposure=class,
+                     family="multinomial",
+                     link="logit",
+                     numerator=~1,
+                     denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                     data=subset(dat_sub_no_hisp, int_year_fin>=2001),
+                     maxit=1000,
+                     trace=FALSE)$ipw.weights)  -> dat_sub_no_hisp_2001
+
+summary(dat_sub_no_hisp_2001$sw_excl)
+```
+
+##### Survival 
+
+```{r warning=FALSE, message=FALSE}
+#early
+kapped_early <- survfit(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_1986, se=T) 
+mod_early <- coxph(Surv(time_86_96_05, dead_86_96_05)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_1986)
+binded_early <- survdiffed(kapped_early, timed=19)
+
+#late
+kapped_late <- survfit(Surv(time,dead)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_2001, se=T)
+mod_late <- coxph(Surv(time,dead)~class, robust=T, w=sw_excl, data=dat_sub_no_hisp_2001)
+binded_late <- survdiffed(kapped_late, timed=19)
+```
+
+###### IPW survival plots
+
+```{r warning=FALSE, message=FALSE, fig.height=4, fig.width=8.75}
+plotted(datted=kapped_early,
+        classed_repped=19,
+        grpd="1986-1996 with follow-up through 2004", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11)))  +
+plotted(datted=kapped_late,
+        classed_repped=19,
+        grpd="2001-2019 with follow-up through 2019", 
+        grps=95, 
+        bottom=0.75) + 
+  scale_x_continuous(limits=c(0, 19), breaks=seq(1, 19, 2), expand=expansion(mult=c(0,0.11))) +
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+```
+
+###### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_early, bind=binded_early, captioned="Ref: IBOs (1986-1996 subset)")
+tidy_n(modded=mod_late, bind=binded_late, captioned="Ref: IBOs (2001-2019 subset)")
+```
+
+### Class by year interaction with regression adjustment instead of period stratification and IPW
+
+Similar to primary, but imprecise, especially in spline analyses. Used 2018 instead of 2019 as end-of-follow-up year because <50 respondents were interviewed in 2019. Pointwise confidence intervals. P-value is for chunk test of joint significance of interaction term.
+
+#### Year as linear term
+
+##### Less-adjusted
+
+```{r warning=FALSE, message=FALSE}
+ddist <- datadist(dat_sub_no_hisp)
+options(datadist="ddist")
+mod_linear <- cph(Surv(time,dead)~class*int_year_fin + rcs(age, 3) + sex + cluster(nhispid), w=mortwt_f, data=dat_sub_no_hisp, x=T, y=T)
+
+int_year_func(modded=mod_linear)
+```
+
+##### More-adjusted
+
+```{r warning=FALSE, message=FALSE}
+mod_linear_adj <- cph(Surv(time,dead)~class*int_year_fin + rcs(age, 3) + sex + educ + marital_tri + region + race_h + cluster(nhispid), w=mortwt_f, data=dat_sub_no_hisp, x=T, y=T)
+
+int_year_func(modded=mod_linear_adj)
+```
+
+#### Year as 5-knot restricted cubic spline
+
+##### Less-adjusted
+
+```{r warning=FALSE, message=FALSE}
+mod_spline <- cph(Surv(time,dead)~class*rcs(int_year_fin, 5) + rcs(age, 3) + sex + cluster(nhispid), w=mortwt_f, data=dat_sub_no_hisp, x=T, y=T)
+
+int_year_func(modded=mod_spline)
+```
+
+##### More-adjusted
+
+```{r warning=FALSE, message=FALSE}
+mod_spline_adj <- cph(Surv(time,dead)~class*rcs(int_year_fin, 5) + rcs(age, 3) + sex + educ + marital_tri + region + race_h + cluster(nhispid), w=mortwt_f, data=dat_sub_no_hisp, x=T, y=T)
+
+int_year_func(modded=mod_spline_adj)
+```
+
+### Including employed "chief executives, general and operative managers, and legislators" in IBO class rather than managerial class from 2005-2018
+
+HR similar to 2001-2019 analysis above. IBO class increases from 5282 to 7650 with change (2368 respondents move from managerial class to IBO class). A bit more missingness in class measure because using alternative occupation variable that contains "chief executives, general and operative managers, and legislators" category. 
+
+```{r warning=FALSE, message=FALSE}
+dat_sub_no_hisp %>%
+  filter(year>=2005) %>%
+  mutate(ceo=ifelse(occ==1, 1, 0),
+         class_ceo=factor(ifelse(empstat==220, "NLFs",
+                                ifelse((empstat>=200 & empstat<=214) | (classwk2>=1 & classwk2<=4 & managers!=1  & ceo!=1), "Workers",
+                                      ifelse(classwk2>=1 & classwk2<=4 & managers==1 & ceo!=1, "Managers",
+                                            ifelse((classwk2==5 & jobsecincorp==2) | (classwk2>=1 & classwk2<=4 & managers==1 & ceo==1), "IBOs",
+                                                    ifelse((classwk2==6  & ceo!=1) | (classwk2==5 & jobsecincorp==1 & ceo!=1), "UBOs", NA))))), 
+                          levels=c("IBOs", "UBOs", "Managers", "Workers", "NLFs"))) -> dat_sub_no_hisp_2005_ceo
+
+dat_sub_no_hisp_2005_ceo %>%
+  filter(!is.na(class_ceo)) %>% #small amount of missingness because using alternative occupation variable
+  mutate(sw_ceo=ipwpoint(exposure=class_ceo,
+                         family="multinomial",
+                         link="logit",
+                         numerator=~1,
+                         denominator=~rcs(age, 3) + sex + rcs(int_year_fin, 3), 
+                         data=subset(dat_sub_no_hisp_2005_ceo, !is.na(class_ceo)),
+                         weights=mortwt_f,
+                         maxit=1000,
+                         trace=FALSE)$ipw.weights,
+         sw_f_ceo=sw_ceo*mortwt_f)  -> dat_sub_no_hisp_2005_ceo
+
+summary(dat_sub_no_hisp_2005_ceo$sw_ceo)
+```
+
+```{r warning=FALSE, message=FALSE}
+kapped_ceo <- survfit(Surv(time,dead)~class, robust=T, w=sw_f_ceo, data=dat_sub_no_hisp_2005_ceo, se=T)
+mod_ceo <- coxph(Surv(time,dead)~class, robust=T, w=sw_f_ceo, data=dat_sub_no_hisp_2005_ceo)
+binded_ceo <- survdiffed(kapped_ceo, timed=15)
+```
+
+#### IPW survival differences and hazard ratios
+
+```{r}
+tidy_n(modded=mod_ceo, bind=binded_ceo)
+```
+
+# Confirming class variables are coded correctly
+
+```{r message=FALSE, warning=FALSE}
+kable(table(dat_sub_no_hisp$class, dat_sub_no_hisp$empstat), caption="Confirming that all unemployed (200-214) are workers and all NLF (220) are NLF") %>%
+  kable_styling("striped")
+
+kable(table(dat_sub_no_hisp$class, dat_sub_no_hisp$managers), caption="Class by manager: 1=managers") %>%
+  kable_styling("striped") 
+
+kable(table(subset(dat_sub_no_hisp, managers==1)$class, subset(dat_sub_no_hisp, managers==1)$empstat), caption="Confirming that all workers and NLFs who have 'managers==1' are either unemp or NLF") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, managers==1 & year<2001)$class, subset(dat_sub_no_hisp, managers==1 & year<2001)$classwk), 
+      caption="1986-1996: confirming that all IBOs and UBOs who have 'managers==1' are self-employed") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, managers==1 & year>=2001)$class, subset(dat_sub_no_hisp, managers==1 & year>=2001)$classwk2), 
+      caption="2001-2018: confirming that all IBOs and UBOs who have 'managers==1' are self-employed") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year<2001)$class, subset(dat_sub_no_hisp, year<2001)$classwk), caption="1986-1996: class by classwk; all 41 are IBO/wrk and 42-50 are UBO/wrk") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year<2001 & class=="Wrks")$classwk, subset(dat_sub_no_hisp, year<2001 & class=="Wrks")$empstat), 
+            caption="1986-1996: confirming that all workers who have classwk==41-50 are unemployed (211-214)") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year>=2001)$class, subset(dat_sub_no_hisp, year>=2001)$classwk2), caption="2001-2018: class by classwk; all 5-6 are IBO/UBO/wrk/NLF") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="Wrks")$classwk2, subset(dat_sub_no_hisp, year>=2001 & class=="Wrks")$empstat), 
+            caption="2001-2018: confirming that all workers who have classwk==5-6 are unemployed (200)") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="IBOs" | class=="UBOs")$class, subset(dat_sub_no_hisp, year>=2001 & class=="IBOs" | class=="UBOs")$jobsecincorp), 
+            caption="2001-2018: confirming that all self-employed (classwk2 5-6) with jobsecincorp==2 are IBO and jobsecincorp==1 or 0 are UBO)") %>%
+  kable_styling("striped")
+
+kable(table(subset(dat_sub_no_hisp, year>=2001 & class=="UBOs")$classwk2, subset(dat_sub_no_hisp, year>=2001 & class=="UBOs")$jobsecincorp), 
+            caption="2001-2018: confirming that all UBOs with jobsecincorp==0 have classwk2==6 (working w/o pay in family bus/farm)") %>%
+  kable_styling("striped")
+```
+
+# Session info
+
+```{r  warning=FALSE, message=FALSE}
+sessionInfo()
+```
